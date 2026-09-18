@@ -3,7 +3,7 @@
 
 사용(컨테이너): python3 tools/se3lio_run.py <offline_dir> <lidar_dir> <out_imu.tum> [--config src/se3-lio/config/comfort.yaml]
                                           [--imu-dt S] [--max-frames N] [--set KEY=VAL ...] [--livox-dir DIR]
-                                          [--cams A,B,...] [--img-time-offset S] [--dump DIR]
+                                          [--cams A,B,...] [--img-time-offset S] [--dump DIR] [--viz OUT.npz]
 --livox-dir: Hesai(lidar_dir) + Livox(livox_dir) 를 따로 읽어 코어가 병합한다(SE3_LIO::mergeLiDARs).
              extrinsic 은 T_imu_lidar(Hesai) 와 T_imu_lidar · dT · T_lidar_livox(tools/common_dT.npy 정련) 두 개.
 --cams:      카메라 이름들(front_center 는 cam/, 나머지는 cam_<name>/, extract --cams-only). 첫 카메라의 이미지 스탬프가
@@ -35,6 +35,7 @@ def main():
     ap.add_argument('--set', action='append', default=[], metavar='KEY=VAL', help='SE3LIOConfig 필드 덮어쓰기 (voxel_map_plane_thres=1e-3, 리스트는 lidar_range_noises=0.02,0.05)')
     a = ap.parse_args()
 
+    ap.add_argument('--viz', metavar='OUT.npz', help='시각화 덤프 — 궤적·키프레임(0.5 m) 스캔 1/5. 호스트에서 tools/viz_rrd.py 가 rerun .rrd 로 바꾼다')
     params = load_node_params(a.config)
     for kv in a.set:
         k, v = kv.split('=', 1)
@@ -66,7 +67,22 @@ def main():
                                     params['point_filter_num'], livox_dir=a.livox_dir, cam_dirs=cam_dirs,
                                     img_time_offset=a.img_time_offset, cam_calibs=cam_calibs)
     pipeline = OdometryPipeline(dataset, params['config'], extrinsic)
-    pipeline.run(progress=False, dump_dir=a.dump)
+    logger = None
+    if a.viz:
+        class _VizDump:   # rerun 0.33 은 이미지(py3.8)에 못 올린다 — npz 로 남기고 호스트 tools/viz_rrd.py 가 rrd 로 바꾼다
+            def __init__(self):
+                self.grav, self.last, self.kf, self.clouds = None, None, [], []
+
+            def log_frame(self, stamp, pose, pts, grav=None):   # pts: 코어가 돌려준 디스큐 body 프레임 클라우드
+                if self.grav is None:
+                    self.grav = np.asarray(grav, float)
+                p = pose[:3, 3]
+                if self.last is None or np.linalg.norm(p - self.last) >= 0.5:
+                    self.last = p.copy()
+                    self.kf.append(len(pipeline.poses) - 1)
+                    self.clouds.append(np.asarray(pts, np.float32)[::5, :3])
+        logger = _VizDump()
+    pipeline.run(progress=False, dump_dir=a.dump, logger=logger)
     pipeline.save_tum(a.out)
     pipeline.save_timing(os.path.join(os.path.dirname(a.out), 'timing.csv'))
     print(pipeline.summary())
@@ -75,3 +91,6 @@ def main():
 
 if __name__ == '__main__':
     main()
+    if a.viz:
+        np.savez(a.viz, stamps=np.array(pipeline.stamps), poses=np.array(pipeline.poses), grav=logger.grav, kf=np.array(logger.kf),
+                 kf_len=np.array([len(c) for c in logger.clouds]), pts=np.concatenate(logger.clouds))

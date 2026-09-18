@@ -66,7 +66,7 @@ class OdometryPipeline:
             if dump_dir is not None:
                 _write_pcd(os.path.join(dump_dir, f"{len(self.poses) - 1:05d}.pcd"), cloud)
             if logger is not None:
-                logger.log_frame(state.stamp, self.poses[-1], getattr(frame, "points", None), state.grav)
+                logger.log_frame(state.stamp, self.poses[-1], getattr(frame, "points", cloud), state.grav)  # multi: deskewed body-frame cloud
         return self
 
     def save_tum(self, path):

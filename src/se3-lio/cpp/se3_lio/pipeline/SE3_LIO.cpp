@@ -1,6 +1,7 @@
 #include "SE3_LIO.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <memory>
 #include <cstdio>
@@ -97,9 +98,22 @@ void dumpState(const char *tag, const se3_lio::State &s) {
     for (int i = 0; i < 9; i++) fprintf(stderr, " %.2e", std::sqrt(std::max(0.0, s.covariance(i, i))));
     fprintf(stderr, " inl %d res %.4f\n", s.num_inliers, s.residual);
 }
+
+// Diagnostic: SE3LIO_TIMING=1 prints per-frame wall-clock (ms) of predict / update / map to stderr.
+struct StageTimer {
+    const bool on = std::getenv("SE3LIO_TIMING") != nullptr;
+    std::chrono::steady_clock::time_point t = std::chrono::steady_clock::now();
+    double lap() {
+        const auto now = std::chrono::steady_clock::now();
+        const double ms = std::chrono::duration<double, std::milli>(now - t).count();
+        t = now;
+        return ms;
+    }
+};
 }  // namespace
 
 void SE3_LIO::estimatePose(MeasurementPtr &_measurement_ptr, const std::vector<cv::Mat> &_grays) {
+    StageTimer timer;
     if (!_measurement_ptr->lidars.empty()) mergeLiDARs(*_measurement_ptr);
 
     state_predictor_.setState(state_);
@@ -114,9 +128,11 @@ void SE3_LIO::estimatePose(MeasurementPtr &_measurement_ptr, const std::vector<c
 
     state_predictor_.calculateUndistCloudCov(_measurement_ptr->lidar);
 
+    const double t_predict = timer.lap();
     state_updater_.setState(state_);
     state_updater_.setMeasurement(_measurement_ptr);
     state_ = state_updater_.updateState();
+    double t_update = timer.lap();
     dumpState("L", state_);
 
     std::vector<size_t> active;  // cameras with an image this epoch
@@ -127,6 +143,8 @@ void SE3_LIO::estimatePose(MeasurementPtr &_measurement_ptr, const std::vector<c
         map_manager_->setState(state_);
         map_manager_->setMeasurement(_measurement_ptr->lidar);
         map_manager_->updateMap();
+        if (timer.on)
+            fprintf(stderr, "TIMING %.6f predict %.2f update %.2f map %.2f\n", state_.stamp, t_predict, t_update, timer.lap());
         return;
     }
 
@@ -149,6 +167,7 @@ void SE3_LIO::estimatePose(MeasurementPtr &_measurement_ptr, const std::vector<c
     }
     if (!fast_turn)
         for (size_t i : active) state_ = visual_updaters_[i]->update(state_, _grays[i], scan_world);
+    t_update += timer.lap();  // photometric update on top of the LiDAR one
     dumpState("V", state_);
 
     map_manager_->setState(state_);
@@ -163,6 +182,8 @@ void SE3_LIO::estimatePose(MeasurementPtr &_measurement_ptr, const std::vector<c
                 state_.pos(), config_.voxel_map_sliding_thresh,
                 config_.voxel_map_half_size * config_.voxel_map_resolution);
     }
+    if (timer.on)
+        fprintf(stderr, "TIMING %.6f predict %.2f update %.2f map %.2f\n", state_.stamp, t_predict, t_update, timer.lap());
 }
 
 void SE3_LIO::estimatePoseWithGPS_v2(MeasurementPtr &_measurement_ptr) {

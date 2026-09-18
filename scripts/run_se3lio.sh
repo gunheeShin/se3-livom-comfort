@@ -12,12 +12,14 @@
 #   --rt:           공개(계측) 프로필 — OMP 8 스레드, 결과 이름에 -rt. hrun --cpus all 로 혼자 돌린다(ms/scan 은 옆 잡에 흔들린다)
 #   기본(내부) 프로필은 OMP 4 스레드 — hrun --cpus 8 로 동시 3개. 어느 쪽이든 timing.csv 는 남는다
 #   --dump:         디스큐 스캔을 results/<name>/scans/00000.pcd… 로 저장(궤적 행과 1:1, HBA 입력, 미션당 3~8 GB)
+#   --stage-timing: 코어 3구간 시간(predict·update·map ms)을 run.log 에 TIMING 줄로 남긴다(SE3LIO_TIMING=1). update = LiDAR + 카메라 갱신, map = 복셀 + visual 맵
+#   --viz:          시각화 덤프 results/<name>/viz.npz. 호스트에서 python3 tools/viz_rrd.py results/<name>/viz.npz → viz.rrd (rerun-sdk·뷰어 0.33.1)
 set -euo pipefail
 WS="$(realpath "$(dirname "$0")/..")"
 DATA=/media/gunhee/gun_T7_17/Research/LIO/PublichDataset/grandtour
 SEQ="$1"; shift; ARGS="$*"
-TAG=""; IMUDT=""; LIDAR=""; CFG=/ws/src/se3-lio/config/comfort.yaml; SET=""; CAM=""; LIVO=""; IMGDT=""; CAMS=front_center; DUMP=""; RT=""
-while [ $# -gt 0 ]; do case "$1" in --tag) TAG="-$2"; shift;; --imu-dt) IMUDT="$2"; shift;; --lidar) LIDAR="$2"; shift;; --config) CFG="$2"; shift;; --set) SET="$SET --set $2"; shift;; --cam) CAM=1;; --cams) CAMS="$2"; shift;; --img-dt) IMGDT="$2"; shift;; --dump) DUMP=1;; --rt) RT=1;; --livo) CAM=1; LIVO=1; SET="$SET --set visual_en=1";; esac; shift; done
+TAG=""; IMUDT=""; LIDAR=""; CFG=/ws/src/se3-lio/config/comfort.yaml; SET=""; CAM=""; LIVO=""; IMGDT=""; CAMS=front_center; DUMP=""; RT=""; VIZ=""
+while [ $# -gt 0 ]; do case "$1" in --tag) TAG="-$2"; shift;; --imu-dt) IMUDT="$2"; shift;; --lidar) LIDAR="$2"; shift;; --config) CFG="$2"; shift;; --set) SET="$SET --set $2"; shift;; --cam) CAM=1;; --cams) CAMS="$2"; shift;; --img-dt) IMGDT="$2"; shift;; --dump) DUMP=1;; --rt) RT=1;; --viz) VIZ=1;; --stage-timing) export SE3LIO_TIMING=1;; --livo) CAM=1; LIVO=1; SET="$SET --set visual_en=1";; esac; shift; done
 
 MDIR=$(ls -d "$DATA"/*_"${SEQ^^}"_release_* | head -1)
 OFF="$MDIR/comfort_offline"
@@ -34,6 +36,7 @@ SCAN_DUMP=""; [ -z "$DUMP" ] || { rm -rf "$OUT/scans"; SCAN_DUMP="--dump /ws/res
 
 PCORES=$(cat /sys/devices/cpu_core/cpus)
 [ "${HRUN_PIN:-}" = "$PCORES" ] || { echo "[$SEQ] hrun --pin p 로만 돈다 (HRUN_PIN='${HRUN_PIN:-}', P코어=$PCORES)"; exit 2; }
+[ -z "$VIZ" ] || VIZ="--viz /ws/results/$NAME/viz.npz"
 PROV="$OUT/provenance"; mkdir -p "$PROV"
 git -C "$WS" rev-parse HEAD > "$PROV/commit"
 { git -C "$WS" diff --binary HEAD
@@ -51,7 +54,7 @@ git -C "$WS" rev-parse HEAD > "$PROV/commit"
 bash "$WS/docker/run_docker.sh" bash -c "
 set -e
 flock /ws/src/se3-lio/python/.build.lock bash -c \"python3 -c 'import se3_lio.pybind.se3_lio_pybind' 2>/dev/null || { echo '[se3lio] build binding'; pip3 install --no-build-isolation -e /ws/src/se3-lio/python 2>&1 | tail -3; }\"   # 동시 컨테이너가 같은 build/ 를 만지면 import 가 깨진다
-python3 /ws/tools/se3lio_run.py '$OFF' '$LIDAR_DIR' /ws/results/$NAME/${SEQ}_imu.tum --config '$CFG' ${IMUDT:+--imu-dt $IMUDT} $SET $LIVOX $CAM $SCAN_DUMP 2>&1 | tee /ws/results/$NAME/run.log | grep -E 'se3lio|frames|Error|error' || true
+python3 /ws/tools/se3lio_run.py '$OFF' '$LIDAR_DIR' /ws/results/$NAME/${SEQ}_imu.tum --config '$CFG' ${IMUDT:+--imu-dt $IMUDT} $SET $LIVOX $CAM $SCAN_DUMP $VIZ 2>&1 | tee /ws/results/$NAME/run.log | grep -E 'se3lio|frames|Error|error' || true
 grep -q '^\[se3lio\] done' /ws/results/$NAME/run.log || { echo '[$SEQ] 완주 실패 — run.log 확인'; exit 1; }
 python3 /ws/tools/to_prism.py '$OFF/calib.json' /ws/results/$NAME/${SEQ}_imu.tum /ws/results/$NAME/$SEQ.tum
 python3 /ws/tools/to_prism.py '$OFF/calib.json' /ws/results/$NAME/${SEQ}_imu.tum /ws/results/$NAME/${SEQ}_g5.tum --grid 0.005 >/dev/null
