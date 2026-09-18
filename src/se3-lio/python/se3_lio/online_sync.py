@@ -65,4 +65,6 @@ class OnlineSynchronizer:
             if imu_block.shape[0] == 0:
                 continue
             out.append((scan, imu_block))
+        del self._imus[:self._imu_idx]   # consumed rows are never read again
+        self._imu_idx = 0
         return out

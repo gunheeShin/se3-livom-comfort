@@ -418,6 +418,7 @@ public:
             leaves_[leafnum]->temp_points_.push_back(temp_points_[i]);
             leaves_[leafnum]->new_points_num_++;
         }
+        std::vector<MapPoint>().swap(temp_points_);  // handed down to the leaves
 
         for (uint i = 0; i < 8; i++) {
             if (leaves_[i] != nullptr) {
