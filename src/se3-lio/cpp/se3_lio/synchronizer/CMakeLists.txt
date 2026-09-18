@@ -1,0 +1,5 @@
+add_library(synchronizer SHARED)
+add_library(se3_lio::synchronizer ALIAS synchronizer)
+target_sources(synchronizer PRIVATE measurement_synchronizer.cpp)
+target_include_directories(synchronizer PUBLIC ${PROJECT_SOURCE_DIR})
+target_link_libraries(synchronizer Eigen3::Eigen)

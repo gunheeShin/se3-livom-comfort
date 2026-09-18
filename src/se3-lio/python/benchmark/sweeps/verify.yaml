@@ -1,0 +1,7 @@
+# "Verify" = a sweep with an empty grid -> a single combo with no overrides
+# (i.e. the base params). No special code path; the topic auto-resolves to
+# 'verify' (this file's stem), so results land in results/<target>/verify/.
+#
+#   python benchmark/run.py   <target> --sweep python/benchmark/sweeps/verify.yaml
+#   python benchmark/score.py <target> --topic verify
+grid: {}

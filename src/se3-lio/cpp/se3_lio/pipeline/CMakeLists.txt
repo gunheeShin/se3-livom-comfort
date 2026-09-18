@@ -1,0 +1,5 @@
+add_library(pipeline SHARED)
+add_library(se3_lio::pipeline ALIAS pipeline)
+target_sources(pipeline PRIVATE SE3_LIO.cpp)
+target_include_directories(pipeline PUBLIC ${PROJECT_SOURCE_DIR})
+target_link_libraries(pipeline Eigen3::Eigen se3_lio::core se3_lio::visual)

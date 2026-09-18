@@ -1,0 +1,67 @@
+name: Publish to PyPI.org
+on:
+  release:
+    types: [published]
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build_sdist:
+    name: Build source distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build sdist
+        run: pipx run build --sdist ${{ github.workspace }}/python/
+      - name: Move sdist to dist
+        run: mkdir -p dist && mv ${{ github.workspace }}/python/dist/*.tar.gz dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-sdist
+          path: dist/*.tar.gz
+
+  cibuildwheel:
+    name: Build wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # Linux-first (the core needs OpenMP). Add macos/windows once OpenMP is
+        # set up for those platforms (see pyproject [tool.cibuildwheel] note).
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build test wheel (only PRs — one build to confirm it works)
+        if: github.event_name != 'release'
+        uses: pypa/cibuildwheel@v2.22.0
+        env:
+          CIBW_BUILD: "cp310-*"
+        with:
+          package-dir: ${{ github.workspace }}/python/
+      - name: Build all wheels (on release)
+        if: github.event_name == 'release'
+        uses: pypa/cibuildwheel@v2.22.0
+        with:
+          package-dir: ${{ github.workspace }}/python/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+
+  pypi:
+    name: Publish to PyPI
+    if: github.event_name == 'release'
+    needs: [cibuildwheel, build_sdist]
+    runs-on: ubuntu-latest
+    # Trusted publishing (OIDC) — no API token. Register this repo + workflow as
+    # a trusted publisher on PyPI: https://docs.pypi.org/trusted-publishers/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: artifact-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1

@@ -1,0 +1,26 @@
+# build artifacts
+build/
+install/
+devel/
+log/
+logs/
+__pycache__/
+
+# visualization / run outputs (large, not for VCS) — incl. benchmark results/
+results/
+*.rrd
+
+# internal (not for public release)
+.claude/
+CLAUDE.md
+docs/
+
+# maintainer-local run scripts (real host paths)
+run_docker_local.sh
+
+# Polyscope / ImGui runtime config (written to CWD when the viewer runs)
+.polyscope.ini
+imgui.ini
+
+# internal verification harness (implementation-phase; private dataset paths)
+/_verify/

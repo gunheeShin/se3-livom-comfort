@@ -1,0 +1,12 @@
+# Shared sweep grid, applied to every benchmark target -- a dataset family in
+# datasets/ (suite over all its sequences) or a single sequence key. Each combo
+# is the cartesian product of the listed values. Override with --sweep <file>.
+#
+# voxel_map.resolution is held at the config default (1.0) so half_map_size keeps
+# a fixed physical meaning (extent = half_map_size x resolution); sliding_thresh
+# stays at config (8.0). RAM/time per combo are recorded (combo_*.json -> scores.csv),
+# so the half_map_size accuracy/RAM trade-off is visible when picking the winner.
+grid:
+  downsample.resolution: [0.5, 1.0]
+  voxel_map.plane_threshold: [0.01, 0.05]
+  voxel_map.half_map_size: [50, 100, 150]

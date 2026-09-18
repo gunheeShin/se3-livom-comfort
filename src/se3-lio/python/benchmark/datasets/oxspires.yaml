@@ -1,0 +1,13 @@
+# Oxford Spires — handheld/legged campus survey. LiDAR=Hesai QT64 (reuse LIDAR_TYPE=hesai;
+# per-point `timestamp` absolute, auto-dispatched in ros1bag.py). IMU=Alphasense 400 Hz.
+# Extrinsic in config/oxspires.yaml. GT = processed/trajectory/gt-tum.txt (TUM).
+# Mount the oxford-spires dataset root (the dir holding calibration/ and sequences/) at /ws/data/oxford-spires.
+# NOTE: raw bags are bz2-compressed -> `rosbag decompress` before ROS1 *realtime* replay
+# (decompression stalls drop LiDAR at 1x and the estimate diverges); offline python reads bz2 fine.
+# Same rig across sequences -> shared config/oxspires.yaml. Each entry uses the first chunk (`_0.bag`);
+# GT (gt-tum.txt) spans the whole sequence, association handles the overlap. (keble verified ATE ~8.8cm;
+# the other 3 are registered but not yet ATE-checked.)
+keble_college_04: {bag: /ws/data/oxford-spires/sequences/2024-03-12-keble-college-04/raw/rosbag/1710256650_2024-03-12-15-17-31_0.bag, input_type: ros1-ouster, base_params: config/oxspires.yaml, imu_topic: /alphasense_driver_ros/imu, lidar_topic: /hesai/pandar, gt_tum: /ws/data/oxford-spires/sequences/2024-03-12-keble-college-04/processed/trajectory/gt-tum.txt, max_frames: 5014}
+observatory_quarter_01: {bag: /ws/data/oxford-spires/sequences/2024-03-13-observatory-quarter-01/raw/rosbag/1710338090_2024-03-13-13-54-51_0.bag, input_type: ros1-ouster, base_params: config/oxspires.yaml, imu_topic: /alphasense_driver_ros/imu, lidar_topic: /hesai/pandar, gt_tum: /ws/data/oxford-spires/sequences/2024-03-13-observatory-quarter-01/processed/trajectory/gt-tum.txt}
+blenheim_palace_05: {bag: /ws/data/oxford-spires/sequences/2024-03-14-blenheim-palace-05/raw/rosbag/1710410169_2024-03-14-09-56-09_0.bag, input_type: ros1-ouster, base_params: config/oxspires.yaml, imu_topic: /alphasense_driver_ros/imu, lidar_topic: /hesai/pandar, gt_tum: /ws/data/oxford-spires/sequences/2024-03-14-blenheim-palace-05/processed/trajectory/gt-tum.txt}
+christ_church_02: {bag: /ws/data/oxford-spires/sequences/2024-03-18-christ-church-02/raw/rosbag/1710754066_2024-03-18-09-27-47_0.bag, input_type: ros1-ouster, base_params: config/oxspires.yaml, imu_topic: /alphasense_driver_ros/imu, lidar_topic: /hesai/pandar, gt_tum: /ws/data/oxford-spires/sequences/2024-03-18-christ-church-02/processed/trajectory/gt-tum.txt}

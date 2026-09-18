@@ -1,0 +1,4 @@
+# Newer College Multi-Cam (NCD_MC, Ouster OS1). poses.txt is already TUM (seconds).
+MathsHard_MC: {bag: /ws/data/MathsHard_MC/MathsHard_MC.bag, input_type: ros1-ouster, base_params: config/ncd.yaml, imu_topic: /os_cloud_node/imu, lidar_topic: /os_cloud_node/points, gt_tum: /ws/data/MathsHard_MC/MathsHard_MC_gt.tum, max_frames: 800}
+QuadHard_MC: {bag: /ws/data/QuadHard_MC/QuadHard_MC.bag, input_type: ros1-ouster, base_params: config/ncd.yaml, imu_topic: /os_cloud_node/imu, lidar_topic: /os_cloud_node/points, gt_tum: /ws/data/QuadHard_MC/QuadHard_MC_gt.tum, max_frames: 800}
+QuadMid_MC: {bag: /ws/data/QuadMid_MC/QuadMid_MC.bag, input_type: ros1-ouster, base_params: config/ncd.yaml, imu_topic: /os_cloud_node/imu, lidar_topic: /os_cloud_node/points, gt_tum: /ws/data/QuadMid_MC/QuadMid_MC_gt.tum, max_frames: 800}

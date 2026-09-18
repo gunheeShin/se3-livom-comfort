@@ -1,0 +1,8 @@
+# tartandrive (off-road) reduced grid. The shared basic grid's half_map_size=150
+# combos hit ~32GB each on these large off-road maps (OOM when run in parallel),
+# so drop half_map 150 and fix max_point_size at the config default (1000), keeping
+# the downsample x plane study. 8 combos, each <= ~26GB (jobs=1 safe).
+grid:
+  downsample.resolution: [0.5, 1.0]
+  voxel_map.plane_threshold: [0.01, 0.05]
+  voxel_map.half_map_size: [50, 100]

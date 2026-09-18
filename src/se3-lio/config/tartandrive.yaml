@@ -1,0 +1,36 @@
+imu_topic: "/novatel/imu/data"
+lidar_topic: "/velodyne_1/velodyne_points"
+
+sensors:
+  imu:
+    acc_cov: 0.1
+    gyr_cov: 0.1
+    b_acc_cov: 0.0001
+    b_gyr_cov: 0.0001
+
+  lidar:
+    min_range: 1.0
+    point_filter_num: 4    # keep every 4th raw point (VLP-32C @10 Hz): ~3x faster, accuracy within noise
+    range_cov: 0.02
+    angle_cov: 0.1
+
+  # [quat : w, x, y, z] — Novatel IMU -> velodyne_1 (computed from the TartanDrive
+  # TF tree; vehicle == velodyne_1 so the rotation is identity, pure translation).
+  t_exts: [0.508, 0.05, 0.152]
+  q_exts: [1.0, 0.0, 0.0, 0.0]
+
+downsample:
+  resolution: 0.5
+
+max_iter: 4
+
+voxel_map:
+  resolution: 1.0
+  max_layer: 2
+  layer_size: [5, 5, 5, 5, 5]
+  max_point_size: 1000
+  plane_threshold: 0.05  # sweep best (suite gupta0914/gupta1114/turnpikeflat): 3.57m -> 2.32m mean ATE
+
+  map_sliding_en: true
+  sliding_thresh: 8.0
+  half_map_size: 500     # +-500 m (= FAST-LIO cube_side_length 1000); 100 truncated revisited structure

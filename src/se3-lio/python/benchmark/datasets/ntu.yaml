@@ -1,0 +1,7 @@
+# NTU VIRAL (Ouster OS1). Same rig -> shared base_params/topics; only bag/gt/frames differ.
+eee_01: {bag: /ws/data/eee_01/eee_01.bag, input_type: ros1-ouster, base_params: config/ntu.yaml, imu_topic: /imu/imu, lidar_topic: /os1_cloud_node1/points, gt_tum: /ws/data/eee_01/eee_01_gt.tum, max_frames: 1200}
+sbs_01: {bag: /ws/data/sbs_01/sbs_01.bag, input_type: ros1-ouster, base_params: config/ntu.yaml, imu_topic: /imu/imu, lidar_topic: /os1_cloud_node1/points, gt_tum: /ws/data/sbs_01/sbs_01_gt.tum, max_frames: 1200}
+nya_01: {bag: /ws/data/nya_01/nya_01.bag, input_type: ros1-ouster, base_params: config/ntu.yaml, imu_topic: /imu/imu, lidar_topic: /os1_cloud_node1/points, gt_tum: /ws/data/nya_01/nya_01_gt.tum, max_frames: 800}
+rtp_01: {bag: /ws/data/rtp_01/rtp_01.bag, input_type: ros1-ouster, base_params: config/ntu.yaml, imu_topic: /imu/imu, lidar_topic: /os1_cloud_node1/points, gt_tum: /ws/data/rtp_01/rtp_01_gt.tum, max_frames: 800}
+spms_01: {bag: /ws/data/spms_01/spms_01.bag, input_type: ros1-ouster, base_params: config/ntu.yaml, imu_topic: /imu/imu, lidar_topic: /os1_cloud_node1/points, gt_tum: /ws/data/spms_01/spms_01_gt.tum, max_frames: 800}
+tnp_01: {bag: /ws/data/tnp_01/tnp_01.bag, input_type: ros1-ouster, base_params: config/ntu.yaml, imu_topic: /imu/imu, lidar_topic: /os1_cloud_node1/points, gt_tum: /ws/data/tnp_01/tnp_01_gt.tum, max_frames: 800}
