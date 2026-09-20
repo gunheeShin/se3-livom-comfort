@@ -239,9 +239,9 @@ public:
         return out;
     }
 
-    std::vector<std::tuple<int, int, int, int, double, double, int>> Stats() const {
-        std::vector<std::tuple<int, int, int, int, double, double, int>> out;
-        for (const auto &s : hba_.stats()) out.emplace_back(s.round, s.start_scan, s.kfs, s.iters, s.ba_ms, s.pgo_ms, s.done_scan);
+    std::vector<std::tuple<int, int, int, int, double, double, int, double>> Stats() const {
+        std::vector<std::tuple<int, int, int, int, double, double, int, double>> out;
+        for (const auto &s : hba_.stats()) out.emplace_back(s.round, s.start_scan, s.kfs, s.iters, s.ba_ms, s.pgo_ms, s.done_scan, s.rss_mb);
         return out;
     }
 

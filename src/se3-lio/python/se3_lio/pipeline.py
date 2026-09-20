@@ -25,6 +25,15 @@ def _rot_to_quat_xyzw(R):
     return np.array([x, y, z, w])
 
 
+def _rss_mb():
+    """Resident set size of this process in MB (/proc/self/statm, page-size units)."""
+    try:
+        with open("/proc/self/statm") as f:
+            return int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / 1048576
+    except (OSError, ValueError):
+        return float("nan")
+
+
 class OdometryPipeline:
     """Run SE3LIO over an iterable dataset of frames and collect the trajectory."""
 
@@ -38,6 +47,7 @@ class OdometryPipeline:
         self.pose_covs = []  # list of 6x6, error-state [t; omega] on T <- T*exp(xi)
         self.tracked = []  # visual points tracked per frame (0 when the camera is off)
         self.times_ms = []  # wall-clock of the core register call per frame
+        self.rss_mb = []  # resident memory of this process after each frame (LIO + HBA worker)
         self.done = []  # time.perf_counter() when each pose came out (online-bag latency)
 
     def run(self, progress=True, logger=None, dump_dir=None):
@@ -63,6 +73,7 @@ class OdometryPipeline:
                 )
             self.done.append(time.perf_counter())
             self.times_ms.append((self.done[-1] - t0) * 1e3)
+            self.rss_mb.append(_rss_mb())
             self.stamps.append(state.stamp)
             self.poses.append(np.array(state.pose))
             self.pose_covs.append(np.array(state.covariance)[:6, :6])
@@ -91,9 +102,9 @@ class OdometryPipeline:
 
     def save_timing(self, path):
         with open(path, "w") as f:
-            f.write("stamp,ms\n")
-            for t, ms in zip(self.stamps, self.times_ms):
-                f.write(f"{t:.9f},{ms:.3f}\n")
+            f.write("stamp,ms,rss_mb\n")
+            for t, ms, mb in zip(self.stamps, self.times_ms, self.rss_mb):
+                f.write(f"{t:.9f},{ms:.3f},{mb:.0f}\n")
 
     def save_cov(self, path):
         np.save(path, np.asarray(self.pose_covs))

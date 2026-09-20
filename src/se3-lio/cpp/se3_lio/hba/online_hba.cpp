@@ -15,6 +15,7 @@
 #include <mutex>
 #include <thread>
 #include <cmath>
+#include <unistd.h>
 #include <tuple>
 #include <unordered_map>
 
@@ -142,6 +143,13 @@ void global_ba(const Params &prm, vector<mypcl::pose> &poses, const vector<Cloud
     }
 }
 
+double rss_mb() {
+    std::ifstream st("/proc/self/statm");
+    size_t pages = 0, resident = 0;
+    st >> pages >> resident;
+    return resident * (sysconf(_SC_PAGESIZE) / 1048576.0);
+}
+
 gtsam::Pose3 P3(const mypcl::pose &x) { return gtsam::Pose3(gtsam::Rot3(x.q.toRotationMatrix()), gtsam::Point3(x.t)); }
 
 // hba.hpp PGO BetweenFactor: measurement = relative pose of (a, b), variance = |1 / h|
@@ -170,6 +178,7 @@ Cloud::Ptr merge_window(const vector<mypcl::pose> &poses, const vector<Cloud::Pt
         kf = mypcl::append_cloud(kf, one);
     }
     downsample_voxel(*kf, 0.05);
+    kf->points.shrink_to_fit();  // downsample_voxel clears and re-fills in place: without this the merged cloud's capacity (~50 MB) stays
     return kf;
 }
 
@@ -324,7 +333,10 @@ struct OnlineHBA::Impl {
             while ((int)pcds[l].size() >= next_win[l] * GAP + WIN_SIZE) {
                 int i = next_win[l]++;
                 Cloud::Ptr kf = merge_window(kposes[l], pcds[l], i);
-                if (l + 1 == L - 1 && prm.downsample_size > 0) downsample_voxel(*kf, prm.downsample_size);
+                if (l + 1 == L - 1 && prm.downsample_size > 0) {
+                    downsample_voxel(*kf, prm.downsample_size);
+                    kf->points.shrink_to_fit();  // top keyframes live for the whole mission
+                }
                 pcds[l + 1].push_back(kf);
                 kposes[l + 1].push_back(kposes[l][i * GAP]);
                 if (l == 0) window_factors(i);
@@ -342,23 +354,8 @@ struct OnlineHBA::Impl {
         int iters;
         double t0 = now_sec();
         global_ba(prm, x, pcds.back(), hess, iters);
-        double ba_ms = (now_sec() - t0) * 1e3;
+        double ba_ms = (now_sec() - t0) * 1e3, rss = rss_mb();
         solved = n;
-        if (!prm.dump_dir.empty()) {  // memory trace: RSS, scans queued behind this round, scans and keyframes still held
-            size_t rss = 0, queued;
-            {
-                std::ifstream st("/proc/self/status");
-                for (std::string l; std::getline(st, l);)
-                    if (l.rfind("VmRSS:", 0) == 0) rss = std::stoul(l.substr(6));
-                std::lock_guard<std::mutex> lk(mu);
-                queued = pending.size();
-            }
-            size_t held = 0, kf_pts = 0;
-            for (auto &c : pcds[0]) held += c ? 1 : 0;
-            for (auto &c : pcds.back()) kf_pts += c->points.size();
-            fprintf(stderr, "[hba] round %d kfs %d: rss %.2f GB, queued %zu, scans held %zu, top kf points %zu\n", (int)stats.size() + 1, n,
-                    rss / 1048576.0, queued, held, kf_pts);
-        }
         if (!prm.dump_dir.empty()) {  // the BA solution of a round depends only on its keyframes, so rounds with equal n compare
             std::ofstream f(prm.dump_dir + "/round_" + std::to_string(n) + ".txt");
             f.precision(12);
@@ -372,7 +369,7 @@ struct OnlineHBA::Impl {
             if (discard) pending_ms = (now_sec() - stop_time) * 1e3;
         }
         if (discard) {
-            stats.push_back({(int)stats.size() + 1, start, n, iters, ba_ms, 0, -1});
+            stats.push_back({(int)stats.size() + 1, start, n, iters, ba_ms, 0, -1, rss});
             return;
         }
         double t1 = now_sec();
@@ -385,7 +382,7 @@ struct OnlineHBA::Impl {
         }
         isam.update(gtsam::NonlinearFactorGraph(), gtsam::Values(), top_idx);
         top_idx = isam.update(g).newFactorsIndices;
-        stats.push_back({(int)stats.size() + 1, start, n, iters, ba_ms, (now_sec() - t1) * 1e3, pushed.load()});
+        stats.push_back({(int)stats.size() + 1, start, n, iters, ba_ms, (now_sec() - t1) * 1e3, pushed.load(), rss});
     }
 
     void run() {

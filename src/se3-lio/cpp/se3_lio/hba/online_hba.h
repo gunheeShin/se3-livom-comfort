@@ -42,6 +42,7 @@ struct RoundStat {
     double ba_ms;
     double pgo_ms;   // replacing the top-layer factors in iSAM2
     int done_scan;   // scans pushed when the result entered the PGO (-1: discarded at finish)
+    double rss_mb;   // resident memory of the process right after the BA
 };
 
 class OnlineHBA {

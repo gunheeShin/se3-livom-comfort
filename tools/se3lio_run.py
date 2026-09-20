@@ -158,14 +158,15 @@ def main():
     if hba is not None:
         assert a.out.endswith('_imu.tum')
         pipeline.save_tum(a.out[:-len('_imu.tum')] + '_hba.tum', pipeline.poses_hba)
-        st = np.array(hba.stats()).reshape(-1, 7)   # round, start_scan, kfs, iters, ba_ms, pgo_ms, done_scan(-1: 끝에서 버림)
-        np.savetxt(os.path.join(os.path.dirname(a.out), 'hba_rounds.csv'), st, fmt=['%d', '%d', '%d', '%d', '%.1f', '%.1f', '%d'], delimiter=',',
-                   header='round,start_scan,kfs,iters,ba_ms,pgo_ms,done_scan', comments='')
+        st = np.array(hba.stats()).reshape(-1, 8)   # round, start_scan, kfs, iters, ba_ms, pgo_ms, done_scan(-1: 끝에서 버림), rss_mb
+        np.savetxt(os.path.join(os.path.dirname(a.out), 'hba_rounds.csv'), st, fmt=['%d', '%d', '%d', '%d', '%.1f', '%.1f', '%d', '%.0f'], delimiter=',',
+                   header='round,start_scan,kfs,iters,ba_ms,pgo_ms,done_scan,rss_mb', comments='')
         used = st[st[:, 6] >= 0]
         gaps = np.diff(st[:, 1]) if len(st) > 1 else np.zeros(1)
         print(f'hba: rounds {len(st)} (used {len(used)}), kfs last {int(st[-1, 2]) if len(st) else 0}, ba s first/last '
               f'{st[0, 4] / 1e3 if len(st) else 0:.2f}/{st[-1, 4] / 1e3 if len(st) else 0:.2f}, pgo ms max {used[:, 5].max() if len(used) else 0:.0f}, '
-              f'round gap scans med/max {np.median(gaps):.0f}/{gaps.max():.0f}, discarded wait {hba.pending_ms() / 1e3:.1f} s')
+              f'round gap scans med/max {np.median(gaps):.0f}/{gaps.max():.0f}, discarded wait {hba.pending_ms() / 1e3:.1f} s, '
+              f'rss GB at rounds first/last {st[0, 7] / 1024 if len(st) else 0:.1f}/{st[-1, 7] / 1024 if len(st) else 0:.1f}')
     if a.online_bag:   # 지연 = pose 가 나온 시각 - 그 이미지가 찍힌 시각(재생 시계). LiDAR 스캔이 끝나길 기다리는 몫(<= 0.1 s) 포함
         lag = np.array([dataset.lag(t, w) for t, w in zip(pipeline.stamps, pipeline.done)]) * 1e3
         np.savetxt(os.path.join(os.path.dirname(a.out), 'latency.csv'), np.c_[pipeline.stamps, lag], fmt=['%.9f', '%.3f'], delimiter=',', header='stamp,lag_ms', comments='')
