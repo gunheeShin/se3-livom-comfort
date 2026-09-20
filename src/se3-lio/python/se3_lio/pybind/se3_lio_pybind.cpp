@@ -8,6 +8,7 @@
 
 #include "common/data_type.h"
 #include "common/utils.h"
+#include "hba/online_hba.h"
 #include "pipeline/SE3_LIO.h"
 
 namespace py = pybind11;
@@ -209,6 +210,46 @@ private:
     Eigen::Matrix4d extrinsic_;
 };
 
+class OnlineHBAWrapper {
+public:
+    explicit OnlineHBAWrapper(const se3_lio::hba::Params &params) : hba_(params) {}
+
+    void Push(const Eigen::Vector4d &q_xyzw, const Eigen::Vector3d &p,
+              const py::array_t<float, py::array::c_style | py::array::forcecast> &xyz) {
+        if (xyz.ndim() != 2 || xyz.shape(1) != 3) throw std::invalid_argument("xyz must have shape (N, 3)");
+        hba_.push(q_xyzw, p, xyz.data(), static_cast<int>(xyz.shape(0)));
+    }
+
+    py::array_t<double> Finish() {
+        std::vector<se3_lio::hba::Pose> poses;
+        {
+            py::gil_scoped_release release;
+            poses = hba_.finish();
+        }
+        py::array_t<double> out({static_cast<py::ssize_t>(poses.size()), py::ssize_t(4), py::ssize_t(4)});
+        auto o = out.mutable_unchecked<3>();
+        for (size_t i = 0; i < poses.size(); i++) {
+            Eigen::Matrix4d T = Eigen::Matrix4d::Identity();
+            T.block<3, 3>(0, 0) = poses[i].R;
+            T.block<3, 1>(0, 3) = poses[i].p;
+            for (int r = 0; r < 4; r++)
+                for (int c = 0; c < 4; c++) o(i, r, c) = T(r, c);
+        }
+        return out;
+    }
+
+    std::vector<std::tuple<int, int, double, int>> Stats() const {
+        std::vector<std::tuple<int, int, double, int>> out;
+        for (const auto &s : hba_.stats()) out.emplace_back(s.layer, s.index, s.ms, s.pushed);
+        return out;
+    }
+
+    double FinishMs() const { return hba_.finish_ms(); }
+
+private:
+    se3_lio::hba::OnlineHBA hba_;
+};
+
 }  // namespace
 
 PYBIND11_MODULE(se3_lio_pybind, m) {
@@ -261,6 +302,9 @@ PYBIND11_MODULE(se3_lio_pybind, m) {
         .def_readwrite("lidar_min_ranges", &Config::lidar_min_ranges)
         .def_readwrite("downsample_resolution", &Config::downsample_resolution)
         .def_readwrite("downsample_centroid", &Config::downsample_centroid)
+        .def_readwrite("downsample_target_inliers", &Config::downsample_target_inliers)
+        .def_readwrite("downsample_max_resolution", &Config::downsample_max_resolution)
+        .def_readwrite("downsample_start_resolution", &Config::downsample_start_resolution)
         .def_readwrite("max_iter", &Config::max_iter)
         .def_readwrite("voxel_map_resolution", &Config::voxel_map_resolution)
         .def_readwrite("voxel_map_max_layer", &Config::voxel_map_max_layer)
@@ -302,4 +346,22 @@ PYBIND11_MODULE(se3_lio_pybind, m) {
         .def("_merge_lidars", &SE3LIOWrapper::MergeLidars, "points_list"_a, "times_list"_a,
              "stamps"_a)
         .def("num_tracked", &SE3LIOWrapper::NumTracked);
+
+    using HBAParams = se3_lio::hba::Params;
+    py::class_<HBAParams>(m, "_HBAParams")
+        .def(py::init<>())
+        .def_readwrite("voxel_size", &HBAParams::voxel_size)
+        .def_readwrite("downsample_size", &HBAParams::downsample_size)
+        .def_readwrite("eigen_ratio", &HBAParams::eigen_ratio)
+        .def_readwrite("reject_ratio", &HBAParams::reject_ratio)
+        .def_readwrite("max_iter", &HBAParams::max_iter)
+        .def_readwrite("layers", &HBAParams::layers)
+        .def_readwrite("threads", &HBAParams::threads);
+
+    py::class_<OnlineHBAWrapper>(m, "_OnlineHBA")
+        .def(py::init<const HBAParams &>(), "params"_a)
+        .def("push", &OnlineHBAWrapper::Push, "q_xyzw"_a, "p"_a, "xyz"_a)
+        .def("finish", &OnlineHBAWrapper::Finish)
+        .def("stats", &OnlineHBAWrapper::Stats)
+        .def("finish_ms", &OnlineHBAWrapper::FinishMs);
 }

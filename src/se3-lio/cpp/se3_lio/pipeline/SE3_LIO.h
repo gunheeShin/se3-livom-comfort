@@ -49,6 +49,11 @@ struct SE3_LIO_Config {
 
     double downsample_resolution = 0.5;
     bool downsample_centroid = false;   // voxel mean (pcl::VoxelGrid) instead of the real point nearest the center
+    // Adaptive downsample: steer the leaf between downsample_resolution and downsample_max_resolution so the
+    // LiDAR update keeps about this many inliers (0 = off, fixed downsample_resolution).
+    int downsample_target_inliers = 0;
+    double downsample_max_resolution = 0.5;
+    double downsample_start_resolution = 0.0;   // leaf of the first 5 s (0 = downsample_resolution); a first map built at 0.1 m broke SNOW-3
 
     int max_iter = 4;
 
@@ -107,6 +112,10 @@ private:
 
     MeasurementPtr meas_;
     State state_;
+
+    double adaptiveLeaf(double _stamp);
+    double leaf_ = 0.0, first_stamp_ = -1.0;
+    int lidar_inliers_ = 0;  // inliers of the previous LiDAR update
 
     se3_lio::StatePredict state_predictor_;
     se3_lio::StateUpdate state_updater_;

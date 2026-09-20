@@ -28,14 +28,17 @@ def _rot_to_quat_xyzw(R):
 class OdometryPipeline:
     """Run SE3LIO over an iterable dataset of frames and collect the trajectory."""
 
-    def __init__(self, dataset, config, extrinsic=None):
+    def __init__(self, dataset, config, extrinsic=None, hba=None):
         self.dataset = dataset
         self.odometry = SE3LIO(config, extrinsic)
+        self.hba = hba  # _OnlineHBA: gets every pose + deskewed cloud, finish() gives the refined poses
+        self.poses_hba = None
         self.stamps = []
         self.poses = []  # list of 4x4
         self.pose_covs = []  # list of 6x6, error-state [t; omega] on T <- T*exp(xi)
         self.tracked = []  # visual points tracked per frame (0 when the camera is off)
         self.times_ms = []  # wall-clock of the core register call per frame
+        self.done = []  # time.perf_counter() when each pose came out (online-bag latency)
 
     def run(self, progress=True, logger=None, dump_dir=None):
         frames = self.dataset
@@ -58,20 +61,25 @@ class OdometryPipeline:
                     frame.points, frame.point_times, frame.imu, frame.stamp, frame.lidar_idx,
                     frame.end_time, frame.grays,
                 )
-            self.times_ms.append((time.perf_counter() - t0) * 1e3)
+            self.done.append(time.perf_counter())
+            self.times_ms.append((self.done[-1] - t0) * 1e3)
             self.stamps.append(state.stamp)
             self.poses.append(np.array(state.pose))
             self.pose_covs.append(np.array(state.covariance)[:6, :6])
             self.tracked.append(self.odometry.num_tracked())
+            if self.hba is not None:
+                self.hba.push(_rot_to_quat_xyzw(self.poses[-1][:3, :3]), self.poses[-1][:3, 3], cloud)
             if dump_dir is not None:
                 _write_pcd(os.path.join(dump_dir, f"{len(self.poses) - 1:05d}.pcd"), cloud)
             if logger is not None:
                 logger.log_frame(state.stamp, self.poses[-1], getattr(frame, "points", cloud), state.grav)  # multi: deskewed body-frame cloud
+        if self.hba is not None:
+            self.poses_hba = list(self.hba.finish())
         return self
 
-    def save_tum(self, path):
+    def save_tum(self, path, poses=None):
         with open(path, "w") as f:
-            for t, T in zip(self.stamps, self.poses):
+            for t, T in zip(self.stamps, self.poses if poses is None else poses):
                 p = T[:3, 3]
                 q = _rot_to_quat_xyzw(T[:3, :3])
                 f.write(

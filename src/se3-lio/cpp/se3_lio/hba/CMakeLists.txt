@@ -1,0 +1,10 @@
+find_package(PCL REQUIRED COMPONENTS common)
+find_package(GTSAM REQUIRED)
+find_package(Threads REQUIRED)
+
+add_library(hba SHARED)
+add_library(se3_lio::hba ALIAS hba)
+target_sources(hba PRIVATE online_hba.cpp)
+target_include_directories(hba PUBLIC ${PROJECT_SOURCE_DIR} PRIVATE ${PCL_INCLUDE_DIRS} ${GTSAM_INCLUDE_DIR})
+target_compile_definitions(hba PRIVATE ${PCL_DEFINITIONS})
+target_link_libraries(hba PUBLIC Eigen3::Eigen PRIVATE ${PCL_LIBRARIES} gtsam Threads::Threads)

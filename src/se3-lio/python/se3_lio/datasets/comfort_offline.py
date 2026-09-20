@@ -48,7 +48,11 @@ def _read_imu(path, imu_dt):
 
 
 def _read_bin(path, min_range, point_filter_num):
-    a = np.fromfile(path, dtype=XT32)
+    return _filter(np.fromfile(path, dtype=XT32), min_range, point_filter_num)
+
+
+def _filter(a, min_range, point_filter_num):
+    """XT32 records of one scan -> (t, xyz, ring) after the near cut and the every-Nth filter."""
     xf, yf, zf = a["x"], a["y"], a["z"]
     keep = (xf * xf + yf * yf + zf * zf).astype(np.float64) > min_range * min_range
     if point_filter_num > 1:
@@ -59,22 +63,24 @@ def _read_bin(path, min_range, point_filter_num):
 
 
 class _Points:
-    """Time-ordered points of one sensor directory, consumed up to a boundary."""
+    """Time-ordered points of one sensor, consumed up to a boundary. `scans` yields (t, xyz, ring)
+    per scan — read from files (offline) or taken off a live queue (online-bag, blocks until it arrives)."""
 
-    def __init__(self, d, min_range, point_filter_num=1):
-        self._args = (min_range, point_filter_num)
-        self._files = iter(_files(d))
+    def __init__(self, scans, dt=0.0):
+        self._dt = dt  # added to every point stamp (sensor clock -> Hesai clock)
+        self._scans = iter(scans)
         self._t, self._xyz, self._ring = np.empty(0), np.empty((0, 3)), np.empty(0, np.uint16)
         self._done = False
 
     def take(self, t_end):
-        """All points with t < t_end (in file order; files are time-monotonic and disjoint)."""
+        """All points with t < t_end (in scan order; scans are time-monotonic and disjoint)."""
         while not self._done and (self._t.size == 0 or self._t[-1] < t_end):
-            f = next(self._files, None)
-            if f is None:
+            scan = next(self._scans, None)
+            if scan is None:
                 self._done = True
                 break
-            t, xyz, ring = _read_bin(f, *self._args)
+            t, xyz, ring = scan
+            t = t + self._dt
             self._t, self._xyz, self._ring = (
                 np.concatenate([self._t, t]), np.concatenate([self._xyz, xyz]), np.concatenate([self._ring, ring]))
         m = self._t < t_end
@@ -114,9 +120,13 @@ class _ImageLoader:
         init = cv2.fisheye.initUndistortRectifyMap if cam["model"] == "equidistant" else cv2.initUndistortRectifyMap
         self._maps = init(K, D, np.eye(3), K, size, cv2.CV_32FC1)
 
-    def __call__(self, path):
+    def __call__(self, src):
+        """src: image path (offline) or the encoded bytes of a CompressedImage (online-bag)."""
         cv2 = self._cv2
-        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        if isinstance(src, bytes):
+            img = cv2.imdecode(np.frombuffer(src, np.uint8), cv2.IMREAD_GRAYSCALE)
+        else:
+            img = cv2.imread(src, cv2.IMREAD_GRAYSCALE)
         return cv2.remap(img, self._maps[0], self._maps[1], cv2.INTER_LINEAR)
 
 
@@ -133,43 +143,62 @@ class MultiFrame:
 
 def stream_frames(offline_dir, lidar_dir, min_range, imu_dt=0.0, max_frames=None, point_filter_num=1,
                   livox_dir=None, cam_dirs=None, img_time_offset=0.0, cam_calibs=None):
-    """Yields Frame (single lidar_dir, merged .bin or Hesai only) or MultiFrame (livox_dir given:
-    Hesai + Livox as two scans merged inside the core). cam_calibs (one per cam_dir) attach images."""
-    sync = OnlineSynchronizer()
-    for row in _read_imu(os.path.join(offline_dir, "imu.txt"), imu_dt):
-        sync.add_imu(row)
+    """Yields Frame (single lidar_dir, merged .bin or Hesai only) or MultiFrame (livox_dir given: Hesai + Livox,
+    merged inside the core — the order is the lidar index of config.lidar_extrinsics). cam_calibs (one per cam_dir) attach images."""
     start, bounds, imgs = _boundaries(lidar_dir, cam_dirs, img_time_offset)
     exact_end = imgs is not None
     loaders = [_ImageLoader(c) for c in cam_calibs] if cam_calibs and exact_end else None
-    hesai = _Points(lidar_dir, min_range, point_filter_num)
-    livox = _Points(livox_dir, min_range) if livox_dir else None
-    if livox is not None:
-        livox.take(start)  # Livox before the first Hesai point is dropped
+    hesai = _Points(_read_bin(f, min_range, point_filter_num) for f in _files(lidar_dir))
+    aux = [_Points((_read_bin(f, min_range, 1) for f in _files(d)), dt=dt)
+           for d, dt in ((livox_dir, 0.0),) if d]
+    epochs = zip(bounds, imgs if exact_end else [None] * len(bounds))
+    return epoch_frames(start, epochs, _read_imu(os.path.join(offline_dir, "imu.txt"), imu_dt), hesai, aux,
+                        loaders, exact_end, max_frames)
+
+
+def epoch_frames(start, epochs, imu_rows, hesai, aux, loaders, exact_end, max_frames=None):
+    """The frame rule shared by offline and online-bag: `epochs` yields (t_end, image sources), `imu_rows`
+    yields IMU rows in time order. Every input is pulled only as far as the current epoch needs, so a
+    source that blocks until its data arrives (online-bag) produces the same frames as the files do."""
+    sync = OnlineSynchronizer()
+    imu_rows, imu_last = iter(imu_rows), float("-inf")
+    for s in aux:
+        s.take(start)  # points before the first Hesai point are dropped
     pending, emitted = {}, 0
-    for k, t_end in enumerate(bounds):
+    for t_end, srcs in epochs:
         ht, hxyz, hring = hesai.take(t_end)
         if ht.size == 0:
-            if livox is not None:
-                livox.take(t_end)
+            for s in aux:
+                s.take(t_end)
             continue
         h0 = float(ht[0])
-        if livox is None:
+        if not aux:
             frame = Frame(points=hxyz, point_times=ht - h0, imu=None, stamp=h0,
                           lidar_idx=(hring == LIVOX_RING).astype(np.float64),
                           end_time=t_end if exact_end else None)
             last = float(ht[-1])
         else:
-            lt, lxyz, _ = livox.take(t_end)
             scans = [(hxyz, ht - h0, h0)]
             last = float(ht[-1])
-            if lt.size:
-                scans.append((lxyz, lt - lt[0], float(lt[0])))
-                last = max(last, float(lt[-1]))
+            for s in aux:
+                lt, lxyz, _ = s.take(t_end)
+                if lt.size:
+                    scans.append((lxyz, lt - lt[0], float(lt[0])))
+                    last = max(last, float(lt[-1]))
+                elif s is not aux[-1]:
+                    scans.append((np.empty((0, 3)), np.empty(0), h0))  # keeps the later sensors' index
             frame = MultiFrame(scans, None, end_time=t_end if exact_end else None)
         if loaders is not None:
-            frame.grays = [ld(p) if p else None for ld, p in zip(loaders, imgs[k])]
+            frame.grays = [ld(p) if p else None for ld, p in zip(loaders, srcs)]
         pending[h0] = frame
-        sync.add_scan(h0, None, np.array([0.0, (t_end if exact_end else last) - h0]))
+        off = (t_end if exact_end else last) - h0
+        sync.add_scan(h0, None, np.array([0.0, off]))
+        while imu_last < h0 + off:  # IMU up to the first row past the epoch end, as the sync rule computes it
+            row = next(imu_rows, None)
+            if row is None:
+                break
+            sync.add_imu(row)
+            imu_last = row[0]
         for scan, imu_block in sync.drain():
             frame = pending.pop(scan["header_ts"])
             frame.imu = imu_block

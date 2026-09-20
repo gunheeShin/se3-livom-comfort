@@ -25,14 +25,16 @@ add_subdirectory(synchronizer)
 add_subdirectory(core)
 add_subdirectory(visual)
 add_subdirectory(pipeline)
+add_subdirectory(hba)
 
 install(TARGETS synchronizer DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/se3_lio)
 install(TARGETS pipeline DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/se3_lio)
 install(TARGETS core DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/se3_lio)
 install(TARGETS visual DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/se3_lio)
+install(TARGETS hba DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/se3_lio)
 
 
-install(TARGETS synchronizer pipeline core visual
+install(TARGETS synchronizer pipeline core visual hba
     EXPORT se3_lioTargets
     LIBRARY DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/se3_lio
     INCLUDES DESTINATION ${CMAKE_INSTALL_PREFIX}/include/se3_lio
@@ -44,6 +46,7 @@ install(DIRECTORY
     ${CMAKE_CURRENT_SOURCE_DIR}/pipeline
     ${CMAKE_CURRENT_SOURCE_DIR}/synchronizer
     ${CMAKE_CURRENT_SOURCE_DIR}/visual
+    ${CMAKE_CURRENT_SOURCE_DIR}/hba
     DESTINATION ${CMAKE_INSTALL_PREFIX}/include/se3_lio
     FILES_MATCHING PATTERN "*.h"
 )

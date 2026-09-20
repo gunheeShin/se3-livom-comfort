@@ -73,6 +73,9 @@ class SE3LIOConfig(BaseModel):
 
     downsample_resolution: float = 0.5
     downsample_centroid: bool = False
+    downsample_target_inliers: int = 0
+    downsample_max_resolution: float = 0.5
+    downsample_start_resolution: float = 0.0
     max_iter: int = 4
 
     voxel_map_resolution: float = 1.0
@@ -165,6 +168,9 @@ def load_node_params(params_path):
         lidar_angle_noises=_vector(_get(params, "sensors.lidar.angle_cov", 0.01)),
         downsample_resolution=_get(params, "downsample.resolution", 0.5),
         downsample_centroid=bool(_get(params, "downsample.centroid", False)),
+        downsample_target_inliers=int(_get(params, "downsample.target_inliers", 0)),
+        downsample_max_resolution=_get(params, "downsample.max_resolution", 0.5),
+        downsample_start_resolution=_get(params, "downsample.start_resolution", 0.0),
         max_iter=int(_get(params, "max_iter", 4)),
         voxel_map_resolution=_get(params, "voxel_map.resolution", 1.0),
         voxel_map_max_layer=int(_get(params, "voxel_map.max_layer", 2)),

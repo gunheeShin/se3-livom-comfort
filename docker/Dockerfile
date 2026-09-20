@@ -15,6 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 SHELL ["/bin/bash", "-c"]
 
+# GTSAM 4.1 (HBA 백엔드의 PGO)
+RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
+    && add-apt-repository -y ppa:borglab/gtsam-release-4.1 \
+    && apt-get update && apt-get install -y --no-install-recommends libgtsam-dev libgtsam-unstable-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Livox-SDK2 (livox_ros_driver2 링크 대상)
 RUN git clone --depth 1 https://github.com/Livox-SDK/Livox-SDK2.git /tmp/Livox-SDK2 \
     && cd /tmp/Livox-SDK2 && mkdir build && cd build && cmake .. && make -j$(($(nproc)-1)) && make install \

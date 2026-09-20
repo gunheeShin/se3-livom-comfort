@@ -15,7 +15,7 @@ docker run --rm "${TTY[@]}" \
     -e DISPLAY="$DISPLAY" \
     -e QT_X11_NO_MITSHM=1 \
     -e HOME=/tmp \
-    ${OMP_NUM_THREADS:+-e OMP_NUM_THREADS="$OMP_NUM_THREADS"} ${SE3LIO_TIMING:+-e SE3LIO_TIMING=1} \
+    ${OMP_NUM_THREADS:+-e OMP_NUM_THREADS="$OMP_NUM_THREADS"} ${SE3LIO_TIMING:+-e SE3LIO_TIMING=1} ${SE3LIO_DUMP:+-e SE3LIO_DUMP=1} \
     -v /tmp/.X11-unix:/tmp/.X11-unix \
     "${MOUNTS[@]}" \
     -w /ws \

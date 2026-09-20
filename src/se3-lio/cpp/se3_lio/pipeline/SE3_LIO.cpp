@@ -112,6 +112,20 @@ struct StageTimer {
 };
 }  // namespace
 
+double SE3_LIO::adaptiveLeaf(double _stamp) {
+    const double lo = config_.downsample_resolution;
+    if (config_.downsample_target_inliers <= 0) return lo;
+    if (first_stamp_ < 0) first_stamp_ = _stamp;
+    if (leaf_ == 0.0 || _stamp - first_stamp_ < 5.0) {
+        leaf_ = std::max(lo, config_.downsample_start_resolution);  // leaf of the first map
+    } else if (lidar_inliers_ > 0) {
+        // inliers ~ leaf^-1.5 (measured); grow by at most 5 % per scan, shrink by up to 20 %
+        const double ratio = std::pow(double(lidar_inliers_) / config_.downsample_target_inliers, 1.0 / 1.5);
+        leaf_ = std::clamp(leaf_ * std::clamp(ratio, 0.8, 1.05), lo, std::max(lo, config_.downsample_max_resolution));
+    }
+    return leaf_;
+}
+
 void SE3_LIO::estimatePose(MeasurementPtr &_measurement_ptr, const std::vector<cv::Mat> &_grays) {
     StageTimer timer;
     if (!_measurement_ptr->lidars.empty()) mergeLiDARs(*_measurement_ptr);
@@ -124,7 +138,8 @@ void SE3_LIO::estimatePose(MeasurementPtr &_measurement_ptr, const std::vector<c
     if (!state_predictor_.isValid()) return;
 
     _measurement_ptr->raw_lidar = _measurement_ptr->lidar;
-    downsampleCloud(_measurement_ptr->lidar, config_.downsample_resolution, config_.downsample_centroid);
+    const double leaf = adaptiveLeaf(state_.stamp);
+    downsampleCloud(_measurement_ptr->lidar, leaf, config_.downsample_centroid);
 
     state_predictor_.calculateUndistCloudCov(_measurement_ptr->lidar);
 
@@ -132,6 +147,7 @@ void SE3_LIO::estimatePose(MeasurementPtr &_measurement_ptr, const std::vector<c
     state_updater_.setState(state_);
     state_updater_.setMeasurement(_measurement_ptr);
     state_ = state_updater_.updateState();
+    lidar_inliers_ = state_updater_.isValid() ? state_.num_inliers : 0;
     double t_update = timer.lap();
     dumpState("L", state_);
 
@@ -144,7 +160,7 @@ void SE3_LIO::estimatePose(MeasurementPtr &_measurement_ptr, const std::vector<c
         map_manager_->setMeasurement(_measurement_ptr->lidar);
         map_manager_->updateMap();
         if (timer.on)
-            fprintf(stderr, "TIMING %.6f predict %.2f update %.2f map %.2f\n", state_.stamp, t_predict, t_update, timer.lap());
+            fprintf(stderr, "TIMING %.6f predict %.2f update %.2f map %.2f leaf %.3f inl %d\n", state_.stamp, t_predict, t_update, timer.lap(), leaf, lidar_inliers_);
         return;
     }
 
@@ -183,7 +199,7 @@ void SE3_LIO::estimatePose(MeasurementPtr &_measurement_ptr, const std::vector<c
                 config_.voxel_map_half_size * config_.voxel_map_resolution);
     }
     if (timer.on)
-        fprintf(stderr, "TIMING %.6f predict %.2f update %.2f map %.2f\n", state_.stamp, t_predict, t_update, timer.lap());
+        fprintf(stderr, "TIMING %.6f predict %.2f update %.2f map %.2f leaf %.3f inl %d\n", state_.stamp, t_predict, t_update, timer.lap(), leaf, lidar_inliers_);
 }
 
 void SE3_LIO::estimatePoseWithGPS_v2(MeasurementPtr &_measurement_ptr) {

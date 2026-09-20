@@ -18,6 +18,9 @@ sensors:
 
 downsample:
   resolution: 0.1           # preprocess.filter_size_surf
+  target_inliers: 2000     # 직전 스캔 inlier 수가 이 값에 머물도록 격자를 resolution~max_resolution 사이에서 스캔마다 조절(0 = 끔, 고정 격자)
+  max_resolution: 0.5
+  start_resolution: 0.25   # 시작 5 s 의 격자. 0.1 로 출발하면 SNOW-3 가 깨졌다(FAST-LIVO2 러너 실험, 2026-09-18)
 
 max_iter: 5                 # lio.max_iterations
 
@@ -36,15 +39,15 @@ voxel_map:
 # ARC-3 2.07→1.58 · HEAP-1 1.78→1.12 cm (2026-09-14 코드 A/B); 디스큐 공분산·초기화는 무영향.
 residual_floor: 0.001
 
-# 카메라(FAST-LIVO2식 sparse-direct photometric 갱신). enable 이 꺼지면 사진을 읽지 않고 LiDAR 갱신 경로는 그대로다.
-# run_se3lio.sh --cam 이 이미지 스탬프를 에폭 경계로 쓰고, enable 이 켜져 있으면 calib.json 의 K·D·T_cam_lidar 로 카메라를 채운다.
+# 카메라(FAST-LIVO2식 sparse-direct photometric 갱신). 기본으로 켠다 — run_se3lio.sh --lio-only 가 끄고, 꺼지면 사진을 읽지 않고 LiDAR 갱신 경로는 그대로다.
+# 이미지 스탬프가 에폭 경계이고, calib.json 의 K·D·T_cam_lidar 로 카메라를 채운다.
 # 값은 GrandTour.yaml vio: 를 따른다. grid_size 는 FL2 규칙(grid_size<=10 이면 height/17)으로 1080/17.
 # exposure 추정(exposure_estimate_en)은 아직 없다. raycast·inverse composition 은 FL2 도 끈다.
 visual:
-  enable: false
+  enable: true
   max_iter: 5               # vio.max_iterations
   outlier_threshold: 500    # vio.outlier_threshold
-  img_point_cov: 1000       # vio.img_point_cov
+  img_point_cov: 10000      # vio.img_point_cov 는 1000. 그 무게로는 Val 어디서나 손해(+0.2~0.4 cm)라 1/10 로 낮췄다(2026-09-16)
   patch_size: 8             # vio.patch_size
   pyramid_levels: 4         # vio.patch_pyrimid_level
   grid_size: 63             # 1080/17

@@ -2,8 +2,8 @@
 
 Each keyframe's LiDAR scan is transformed into the world frame and logged as a
 point cloud (``window=N`` keeps only the last N -- a sliding submap); the
-trajectory and sensor pose are logged every frame, and per-frame linear/angular
-speed + CPU/RAM/compute-time are logged as scalar plots. The world is rotated so
+trajectory and sensor pose are logged every frame, and per-frame
+CPU/RAM/compute-time are logged as scalar plots. The world is rotated so
 gravity points down (z up). A blueprint bakes the layout (3D view that follows
 the sensor + a row of plots), point/line style defaults, and the sensor TF axes,
 all overridable in the Rerun UI.
@@ -58,7 +58,6 @@ class RerunLogger:
         self._traj = []
         self._R = None  # gravity-alignment rotation, fixed from the first frame
         self._i = 0
-        self._prev_pose = None   # (stamp, pos, R) -> linear/angular speed
         self._prev_cpu = None    # (cpu_seconds, wall) -> CPU%
         self._t_prev_end = None  # wall at end of last log_frame -> per-frame compute time
         rr.init(app_id)
@@ -69,8 +68,6 @@ class RerunLogger:
             rr.save(save_path)
         rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
         # Legend names (+ units) for the scalar plots.
-        rr.log("velocity/linear", rr.SeriesLines(names="linear velocity (m/s)"), static=True)
-        rr.log("velocity/angular", rr.SeriesLines(names="angular velocity (deg/s)"), static=True)
         rr.log("system/cpu", rr.SeriesLines(names="CPU (%)"), static=True)
         rr.log("system/ram", rr.SeriesLines(names="RAM (MB)"), static=True)
         rr.log("system/compute", rr.SeriesLines(names="compute time (ms)"), static=True)
@@ -98,12 +95,10 @@ class RerunLogger:
             # box the camera-follow needs to center on.
             overrides={"world/sensor": [rr.TransformAxes3D(axis_length=self._axis_length)]},
         )
-        # 3D view on top, the scalar plots (speed + compute/CPU/RAM) in a row below.
+        # 3D view on top, the scalar plots (compute/CPU/RAM) in a row below.
         rr.send_blueprint(rrb.Blueprint(rrb.Vertical(
             view3d,
             rrb.Horizontal(
-                rrb.TimeSeriesView(origin="/velocity/linear", name="linear velocity (m/s)"),
-                rrb.TimeSeriesView(origin="/velocity/angular", name="angular velocity (deg/s)"),
                 rrb.TimeSeriesView(origin="/system/compute", name="compute time (ms)"),
                 rrb.TimeSeriesView(origin="/system/cpu", name="CPU (%)"),
                 rrb.TimeSeriesView(origin="/system/ram", name="RAM (MB)"),
@@ -111,7 +106,7 @@ class RerunLogger:
             row_shares=[3, 1],
         )))
 
-    def log_frame(self, stamp, pose, scan_pts, grav=None):
+    def log_frame(self, stamp, pose, scan_pts, grav=None, colors=None, colored=None):
         rr = self._rr
         # Time since the previous log_frame returned ~= the pipeline's compute for
         # this frame (excludes this call's own logging, which runs after).
@@ -141,7 +136,11 @@ class RerunLogger:
             if world.shape[0] > 0:
                 self._last_kf_pos = pos.copy()
                 slot = self._i % self._window if self._window > 0 else self._i
-                rr.log(f"world/map/{slot:05d}", rr.Points3D(world))
+                if colors is None:
+                    rr.log(f"world/map/{slot:05d}", rr.Points3D(world))
+                else:  # colored points and the rest as separate entities, so the viewer can hide the rest
+                    rr.log(f"world/map/color/{slot:05d}", rr.Points3D(world[colored], colors=colors[colored]))
+                    rr.log(f"world/map/gray/{slot:05d}", rr.Points3D(world[~colored], colors=[90, 90, 90], radii=0.02))
                 self._i += 1
 
         # Grow the path one short segment at a time. Re-logging the whole strip
@@ -156,17 +155,6 @@ class RerunLogger:
         self._traj.append(pos)
         # Pose only; the TF axes are drawn by the blueprint override (see above).
         rr.log("world/sensor", rr.Transform3D(translation=pos, mat3x3=R @ pose[:3, :3]))
-
-        # Scalar plots: linear/angular speed (from consecutive poses) + CPU/RAM.
-        if self._prev_pose is not None:
-            pt, pp, pR = self._prev_pose
-            dt = float(stamp) - pt
-            if dt > 0:
-                rr.log("velocity/linear", rr.Scalars(float(np.linalg.norm(pos - pp) / dt)))
-                dR = pR.T @ (pose[:3, :3])
-                ang = np.degrees(np.arccos(np.clip((np.trace(dR) - 1.0) / 2.0, -1.0, 1.0))) / dt
-                rr.log("velocity/angular", rr.Scalars(float(ang)))
-        self._prev_pose = (float(stamp), pos.copy(), pose[:3, :3].copy())
 
         cpu_s = sum(os.times()[:2])   # process user+system CPU seconds
         wall = time.monotonic()
