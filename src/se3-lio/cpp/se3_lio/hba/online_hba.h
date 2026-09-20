@@ -26,6 +26,7 @@ struct Params {
     std::vector<double> hess_const = {1969, 1713, 2248, 4.17, 6.67, 10.1};  // scan-pair PGO weight (window BA Hessian median)
     double gravity_sigma_deg = 0.02;  // stationary-chunk attitude factor: sigma of one 4 s chunk (per node x sqrt(n)); 0 = off
     std::string gravity_file;      // instead: "nx ny nz" then "node bx by bz sigma" lines (comfort_ws gravity_factors.py, validation)
+    std::string dump_dir;          // if set, every round's BA poses go to <dump_dir>/round_<kfs>.txt (regression checks)
 };
 
 struct Pose {

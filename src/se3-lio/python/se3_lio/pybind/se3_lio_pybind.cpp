@@ -361,7 +361,8 @@ PYBIND11_MODULE(se3_lio_pybind, m) {
         .def_readwrite("every", &HBAParams::every)
         .def_readwrite("hess_const", &HBAParams::hess_const)
         .def_readwrite("gravity_sigma_deg", &HBAParams::gravity_sigma_deg)
-        .def_readwrite("gravity_file", &HBAParams::gravity_file);
+        .def_readwrite("gravity_file", &HBAParams::gravity_file)
+        .def_readwrite("dump_dir", &HBAParams::dump_dir);
 
     py::class_<OnlineHBAWrapper>(m, "_OnlineHBA")
         .def(py::init<const HBAParams &>(), "params"_a)

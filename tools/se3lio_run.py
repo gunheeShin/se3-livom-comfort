@@ -120,6 +120,8 @@ def main():
             k, v = kv.split('=')
             cur = getattr(hp, k)
             setattr(hp, k, v if isinstance(cur, str) else [float(x) for x in v.split(':')] if isinstance(cur, list) else type(cur)(float(v)))
+        if hp.dump_dir:
+            os.makedirs(hp.dump_dir, exist_ok=True)
         hba = _OnlineHBA(hp)
     pipeline = OdometryPipeline(dataset, params['config'], extrinsic, hba=hba)
     logger = None

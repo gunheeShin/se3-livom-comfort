@@ -30,10 +30,18 @@ int layer_limit = 2;
 int MIN_PT = 15;
 int thd_num = 16;
 
+// Frames present in a plane voxel (ascending) and their factors, one entry per present frame (sparse: a voxel
+// sees a few of the window's frames, so the dense win_size arrays of the original HBA are not kept).
+struct VOX_SIGS
+{
+  const vector<int>* idx;
+  const vector<VOX_FACTOR>* sig;
+};
+
 class VOX_HESS
 {
 public:
-  vector<const vector<VOX_FACTOR>*> plvec_voxels;
+  vector<VOX_SIGS> plvec_voxels;
   vector<PLV(3)> origin_points;
   int win_size;
 
@@ -41,7 +49,7 @@ public:
 
   ~VOX_HESS()
   {
-    vector<const vector<VOX_FACTOR>*>().swap(plvec_voxels);
+    vector<VOX_SIGS>().swap(plvec_voxels);
   }
 
   void get_center(const PLV(3)& vec_orig, PLV(3)& origin_points_)
@@ -52,24 +60,24 @@ public:
     return;
   }
 
-  void push_voxel(const vector<VOX_FACTOR>* sig_orig, const vector<PLV(3)>* vec_orig)
+  void push_voxel(const vector<int>* idx, const vector<VOX_FACTOR>* sig_orig, const vector<PLV(3)>* vec_orig)
   {
     int process_size = 0;
-    for(int i = 0; i < win_size; i++)
-      if((*sig_orig)[i].N != 0)
+    for(size_t k = 0; k < idx->size(); k++)
+      if((*sig_orig)[k].N != 0)
         process_size++;
 
     #ifdef ENABLE_FILTER
     if(process_size < 1) return;
 
-    for(int i = 0; i < win_size; i++)
-      if((*sig_orig)[i].N != 0)
-        get_center((*vec_orig)[i], origin_points[i]);
+    for(size_t k = 0; k < idx->size(); k++)
+      if((*sig_orig)[k].N != 0)
+        get_center((*vec_orig)[k], origin_points[(*idx)[k]]);
     #endif
     
     if(process_size < 2) return;
     
-    plvec_voxels.push_back(sig_orig);
+    plvec_voxels.push_back({idx, sig_orig});
   }
 
   Eigen::Matrix<double, 6, 1> lam_f(Eigen::Vector3d *u, int m, int n)
@@ -99,13 +107,16 @@ public:
 
     for(int a = head; a < end; a++)
     {
-      const vector<VOX_FACTOR>& sig_orig = *plvec_voxels[a];
+      const vector<int>& idx = *plvec_voxels[a].idx;
+      const vector<VOX_FACTOR>& sig_orig = *plvec_voxels[a].sig;
+      const int K = idx.size();
 
       VOX_FACTOR sig;
-      for(int i = 0; i < win_size; i++)
-        if(sig_orig[i].N != 0)
+      for(int k = 0; k < K; k++)
+        if(sig_orig[k].N != 0)
         {
-          sig_tran[i].transform(sig_orig[i], xs[i]);
+          int i = idx[k];
+          sig_tran[i].transform(sig_orig[k], xs[i]);
           sig += sig_tran[i];
         }
       
@@ -124,13 +135,14 @@ public:
         if(i != kk)
           umumT += 2.0/(lmbd[kk] - lmbd[i]) * u[i] * u[i].transpose();
 
-      for(int i = 0; i < win_size; i++)
-        if(sig_orig[i].N != 0)
+      for(int k = 0; k < K; k++)
+        if(sig_orig[k].N != 0)
         {
-          Eigen::Matrix3d Pi = sig_orig[i].P;
-          Eigen::Vector3d vi = sig_orig[i].v;
+          int i = idx[k];
+          Eigen::Matrix3d Pi = sig_orig[k].P;
+          Eigen::Vector3d vi = sig_orig[k].v;
           Eigen::Matrix3d Ri = xs[i].R;
-          double ni = sig_orig[i].N;
+          double ni = sig_orig[k].N;
 
           Eigen::Matrix3d vihat; vihat << SKEW_SYM_MATRX(vi);
           Eigen::Vector3d RiTuk = Ri.transpose() * uk;
@@ -163,14 +175,16 @@ public:
           Hess.block<6, 6>(6*i, 6*i) += Hb;
         }
       
-      for(int i = 0; i < win_size-1; i++)
-        if(sig_orig[i].N != 0)
+      for(int ka = 0; ka < K-1; ka++)
+        if(sig_orig[ka].N != 0)
         {
-          double ni = sig_orig[i].N;
-          for(int j = i+1; j < win_size; j++)
-            if(sig_orig[j].N != 0)
+          int i = idx[ka];
+          double ni = sig_orig[ka].N;
+          for(int kb = ka+1; kb < K; kb++)
+            if(sig_orig[kb].N != 0)
             {
-              double nj = sig_orig[j].N;
+              int j = idx[kb];
+              double nj = sig_orig[kb].N;
               Eigen::Matrix<double, 6, 6> Hb = Auk[i].transpose() * umumT * Auk[j];
               Hb.block<3, 3>(0, 0) += -2.0/NN/NN * viRiTuk[i] * viRiTuk[j].transpose();
               Hb.block<3, 3>(0, 3) += -2.0*nj/NN/NN * viRiTukukT[i];
@@ -200,12 +214,14 @@ public:
 
     for(int a = 0; a < gps_size; a++)
     {
-      const vector<VOX_FACTOR>& sig_orig = *plvec_voxels[a];
+      const vector<int>& idx = *plvec_voxels[a].idx;
+      const vector<VOX_FACTOR>& sig_orig = *plvec_voxels[a].sig;
       VOX_FACTOR sig;
 
-      for(int i = 0; i < win_size; i++)
+      for(size_t k = 0; k < idx.size(); k++)
       {
-        sig_tran[i].transform(sig_orig[i], xs[i]);
+        int i = idx[k];
+        sig_tran[i].transform(sig_orig[k], xs[i]);
         sig += sig_tran[i];
       }
 
@@ -229,12 +245,14 @@ public:
 
     for(int a = 0; a < gps_size; a++)
     {
-      const vector<VOX_FACTOR>& sig_orig = *plvec_voxels[a];
+      const vector<int>& idx = *plvec_voxels[a].idx;
+      const vector<VOX_FACTOR>& sig_orig = *plvec_voxels[a].sig;
       VOX_FACTOR sig;
 
-      for(int i = 0; i < win_size; i++)
+      for(size_t k = 0; k < idx.size(); k++)
       {
-        sig_tran[i].transform(sig_orig[i], xs[i]);
+        int i = idx[k];
+        sig_tran[i].transform(sig_orig[k], xs[i]);
         sig += sig_tran[i];
       }
 
@@ -258,12 +276,14 @@ public:
     size_t i = 0;
     for(; i < plvec_voxels.size();)
     {
-      const vector<VOX_FACTOR>& sig_orig = *plvec_voxels[i];
+      const vector<int>& idx = *plvec_voxels[i].idx;
+      const vector<VOX_FACTOR>& sig_orig = *plvec_voxels[i].sig;
       VOX_FACTOR sig;
 
-      for(int j = 0; j < win_size; j++)
+      for(size_t k = 0; k < idx.size(); k++)
       {
-        sig_tran[j].transform(sig_orig[j], xs[j]);
+        int j = idx[k];
+        sig_tran[j].transform(sig_orig[k], xs[j]);
         sig += sig_tran[j];
       }
 
@@ -291,6 +311,7 @@ class OCTO_TREE_NODE
 public:
   OCTO_STATE octo_state;
   int layer, win_size;
+  vector<int> idx;                        // frames with points here, ascending; the vectors below are parallel to it
   vector<PLV(3)> vec_orig, vec_tran;
   vector<VOX_FACTOR> sig_orig, sig_tran;
 
@@ -312,10 +333,23 @@ public:
     win_size(_win_size), eigen_thr(_eigen_thr)
   {
     octo_state = UNKNOWN; layer = 0;
-    vec_orig.resize(win_size); vec_tran.resize(win_size);
-    sig_orig.resize(win_size); sig_tran.resize(win_size);
     for(int i = 0; i < 8; i++)
       leaves[i] = nullptr;
+  }
+
+  // A point of frame `fnum`; frames must arrive in ascending order (cut_voxel walks the frames in order).
+  void add(int fnum, const Eigen::Vector3d& orig, const Eigen::Vector3d& tran)
+  {
+    if(idx.empty() || idx.back() != fnum)
+    {
+      idx.push_back(fnum);
+      vec_orig.emplace_back(); vec_tran.emplace_back();
+      sig_orig.emplace_back(); sig_tran.emplace_back();
+    }
+    vec_orig.back().push_back(orig);
+    vec_tran.back().push_back(tran);
+    sig_orig.back().push(orig);
+    sig_tran.back().push(tran);
   }
 
   virtual ~OCTO_TREE_NODE()
@@ -328,9 +362,9 @@ public:
   bool judge_eigen()
   {
     VOX_FACTOR covMat;
-    for(int i = 0; i < win_size; i++)
-      if(sig_tran[i].N > 0)
-        covMat += sig_tran[i];
+    for(size_t k = 0; k < idx.size(); k++)
+      if(sig_tran[k].N > 0)
+        covMat += sig_tran[k];
     
     Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(covMat.cov());
     value_vector = saes.eigenvalues();
@@ -344,7 +378,7 @@ public:
     double sqr_eva0 = sqrt(eva0);
     Eigen::Vector3d center_turb = center + 5 * sqr_eva0 * direct;
     vector<VOX_FACTOR> covMats(8);
-    for(int i = 0; i < win_size; i++)
+    for(size_t i = 0; i < idx.size(); i++)
     {
       for(Eigen::Vector3d ap: vec_tran[i])
       {
@@ -378,10 +412,11 @@ public:
     return 1;
   }
 
-  void cut_func(int ci)
+  void cut_func(int ci)   // entry ci (frame idx[ci]) of this node into the leaves
   {
     PLV(3)& pvec_orig = vec_orig[ci];
     PLV(3)& pvec_tran = vec_tran[ci];
+    const int fnum = idx[ci];
 
     uint a_size = pvec_tran.size();
     for(uint j = 0; j < a_size; j++)
@@ -401,11 +436,7 @@ public:
         leaves[leafnum]->layer = layer + 1;
       }
 
-      leaves[leafnum]->vec_orig[ci].push_back(pvec_orig[j]);
-      leaves[leafnum]->vec_tran[ci].push_back(pvec_tran[j]);
-      
-      leaves[leafnum]->sig_orig[ci].push(pvec_orig[j]);
-      leaves[leafnum]->sig_tran[ci].push(pvec_tran[j]);
+      leaves[leafnum]->add(fnum, pvec_orig[j], pvec_tran[j]);
     }
 
     PLV(3)().swap(pvec_orig);
@@ -417,12 +448,13 @@ public:
     if(octo_state == UNKNOWN)
     {
       int point_size = 0;
-      for(int i = 0; i < win_size; i++)
-        point_size += sig_orig[i].N;
+      for(size_t k = 0; k < idx.size(); k++)
+        point_size += sig_orig[k].N;
       
       if(point_size < MIN_PT)
       {
         octo_state = MID_NODE;
+        vector<int>().swap(idx);
         vector<PLV(3)>().swap(vec_orig);
         vector<PLV(3)>().swap(vec_tran);
         vector<VOX_FACTOR>().swap(sig_orig);
@@ -439,6 +471,7 @@ public:
         vector<PLV(3)>().swap(vec_tran);
         #endif
         #endif
+        vector<VOX_FACTOR>().swap(sig_tran);
         return;
       }
       else
@@ -446,6 +479,7 @@ public:
         if(layer == layer_limit)
         {
           octo_state = MID_NODE;
+          vector<int>().swap(idx);
           vector<PLV(3)>().swap(vec_orig);
           vector<PLV(3)>().swap(vec_tran);
           vector<VOX_FACTOR>().swap(sig_orig);
@@ -454,8 +488,11 @@ public:
         }
         vector<VOX_FACTOR>().swap(sig_orig);
         vector<VOX_FACTOR>().swap(sig_tran);
-        for(int i = 0; i < win_size; i++)
-          cut_func(i);
+        for(size_t k = 0; k < idx.size(); k++)
+          cut_func(k);
+        vector<int>().swap(idx);
+        vector<PLV(3)>().swap(vec_orig);
+        vector<PLV(3)>().swap(vec_tran);
       }
     }
     
@@ -467,7 +504,7 @@ public:
   void tras_opt(VOX_HESS& vox_opt)
   {
     if(octo_state == PLANE)
-      vox_opt.push_voxel(&sig_orig, &vec_orig);
+      vox_opt.push_voxel(&idx, &sig_orig, &vec_orig);
     else
       for(int i = 0; i < 8; i++)
         if(leaves[i] != nullptr)
@@ -488,7 +525,7 @@ public:
 			// colors.push_back(static_cast<unsigned int>(rand() % 256));
       pcl::PointCloud<pcl::PointXYZINormal> color_cloud;
 
-      for(int i = 0; i < win_size; i++)
+      for(size_t i = 0; i < idx.size(); i++)
       {
         for(size_t j = 0; j < vec_tran[i].size(); j++)
         {

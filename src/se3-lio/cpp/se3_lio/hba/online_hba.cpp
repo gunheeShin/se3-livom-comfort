@@ -82,10 +82,7 @@ void cut_voxel_parallel(unordered_map<VOXEL_LOC, OCTO_TREE_ROOT *> &feat_map, co
                         ot->layer = 0;
                         maps[t][position] = ot;
                     }
-                    ot->vec_orig[i].push_back(pvec_orig);
-                    ot->vec_tran[i].push_back(pvec_tran);
-                    ot->sig_orig[i].push(pvec_orig);
-                    ot->sig_tran[i].push(pvec_tran);
+                    ot->add(i, pvec_orig, pvec_tran);
                 }
             }
         });
@@ -347,6 +344,27 @@ struct OnlineHBA::Impl {
         global_ba(prm, x, pcds.back(), hess, iters);
         double ba_ms = (now_sec() - t0) * 1e3;
         solved = n;
+        if (!prm.dump_dir.empty()) {  // memory trace: RSS, scans queued behind this round, scans and keyframes still held
+            size_t rss = 0, queued;
+            {
+                std::ifstream st("/proc/self/status");
+                for (std::string l; std::getline(st, l);)
+                    if (l.rfind("VmRSS:", 0) == 0) rss = std::stoul(l.substr(6));
+                std::lock_guard<std::mutex> lk(mu);
+                queued = pending.size();
+            }
+            size_t held = 0, kf_pts = 0;
+            for (auto &c : pcds[0]) held += c ? 1 : 0;
+            for (auto &c : pcds.back()) kf_pts += c->points.size();
+            fprintf(stderr, "[hba] round %d kfs %d: rss %.2f GB, queued %zu, scans held %zu, top kf points %zu\n", (int)stats.size() + 1, n,
+                    rss / 1048576.0, queued, held, kf_pts);
+        }
+        if (!prm.dump_dir.empty()) {  // the BA solution of a round depends only on its keyframes, so rounds with equal n compare
+            std::ofstream f(prm.dump_dir + "/round_" + std::to_string(n) + ".txt");
+            f.precision(12);
+            for (int i = 0; i < n; i++)
+                f << x[i].t.x() << ' ' << x[i].t.y() << ' ' << x[i].t.z() << ' ' << x[i].q.w() << ' ' << x[i].q.x() << ' ' << x[i].q.y() << ' ' << x[i].q.z() << '\n';
+        }
         bool discard;
         {
             std::lock_guard<std::mutex> lk(mu);
