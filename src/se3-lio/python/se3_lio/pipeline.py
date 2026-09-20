@@ -68,7 +68,9 @@ class OdometryPipeline:
             self.pose_covs.append(np.array(state.covariance)[:6, :6])
             self.tracked.append(self.odometry.num_tracked())
             if self.hba is not None:
-                self.hba.push(_rot_to_quat_xyzw(self.poses[-1][:3, :3]), self.poses[-1][:3, 3], cloud)
+                acc = frame.imu[:, 1:4].mean(0) if getattr(frame, "imu", None) is not None and len(frame.imu) else np.full(3, np.nan)
+                self.hba.push(_rot_to_quat_xyzw(self.poses[-1][:3, :3]), self.poses[-1][:3, 3], cloud, float(state.stamp),
+                              acc, np.asarray(state.ba, dtype=float), np.asarray(state.grav, dtype=float))
             if dump_dir is not None:
                 _write_pcd(os.path.join(dump_dir, f"{len(self.poses) - 1:05d}.pcd"), cloud)
             if logger is not None:

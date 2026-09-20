@@ -63,8 +63,9 @@ def main():
     ap.add_argument('--viz', metavar='OUT.npz', help='시각화 덤프 — 궤적·키프레임(0.5 m) 스캔 1/5. 호스트에서 tools/viz_rrd.py 가 rerun .rrd 로 바꾼다')
     ap.add_argument('--dump', metavar='DIR', help='디스큐 스캔(body 프레임, 다운샘플 전)을 DIR/00000.pcd… 로 저장 — 궤적 행과 1:1, HBA 입력')
     ap.add_argument('--set', action='append', default=[], metavar='KEY=VAL', help='SE3LIOConfig 필드 덮어쓰기 (voxel_map_plane_thres=1e-3, 리스트는 lidar_range_noises=0.02,0.05)')
-    ap.add_argument('--hba', nargs='?', const='', metavar='K=V,...', help='온라인 HBA: 주행 중 아래층 창 BA, 끝난 뒤 맨 위층 BA·PGO → <seq>_hba.tum, hba_timing.csv. '
-                    '값은 _HBAParams 덮어쓰기(voxel_size=1.0,downsample_size=0,eigen_ratio=0.1,reject_ratio=0.05,max_iter=10,layers=3,threads=16)')
+    ap.add_argument('--hba', nargs='?', const='', metavar='K=V,...', help='온라인 HBA 백엔드: 키프레임(25스캔) every 개마다 지금까지 전부를 LIO pose 에서 global BA 하고 iSAM2 PGO 에 넣는다. '
+                    '끝에는 아무것도 안 돌리고 그 시점의 추정치가 <seq>_hba.tum, 회차 기록 hba_rounds.csv. 값은 _HBAParams 덮어쓰기'
+                    '(voxel_size=1.0,downsample_size=0.2,eigen_ratio=0.01,reject_ratio=0.05,max_iter=10,layers=3,threads=8,every=4,hess_const=a:b:c:d:e:f,gravity_sigma_deg=0.02,gravity_file=PATH). 중력 factor 는 정지 토막(2 s 속도 < 2 cm/s, 4 s)의 가속도계 평균을 LIO 의 bias·중력 방향 기준으로 정지 노드에 건다(0 이면 끔, gravity_file 이 있으면 그 파일)')
     a = ap.parse_args()
 
     params = load_node_params(a.config)
@@ -117,7 +118,8 @@ def main():
         hp = _HBAParams()
         for kv in filter(None, a.hba.split(',')):
             k, v = kv.split('=')
-            setattr(hp, k, type(getattr(hp, k))(float(v)))
+            cur = getattr(hp, k)
+            setattr(hp, k, v if isinstance(cur, str) else [float(x) for x in v.split(':')] if isinstance(cur, list) else type(cur)(float(v)))
         hba = _OnlineHBA(hp)
     pipeline = OdometryPipeline(dataset, params['config'], extrinsic, hba=hba)
     logger = None
@@ -149,17 +151,19 @@ def main():
     pipeline.run(progress=False, dump_dir=a.dump, logger=logger)
     pipeline.save_tum(a.out)
     pipeline.save_timing(os.path.join(os.path.dirname(a.out), 'timing.csv'))
+    hwm = [l for l in open('/proc/self/status') if l.startswith('VmHWM')][0].split()[1]
+    print(f'peak RSS {int(hwm) / 1e6:.2f} GB')   # 이 프로세스(LIO + HBA 워커) 최고 상주 메모리
     if hba is not None:
         assert a.out.endswith('_imu.tum')
         pipeline.save_tum(a.out[:-len('_imu.tum')] + '_hba.tum', pipeline.poses_hba)
-        st = np.array(hba.stats())   # layer, window index, ms, scans pushed at completion
-        np.savetxt(os.path.join(os.path.dirname(a.out), 'hba_timing.csv'), st, fmt=['%d', '%d', '%.1f', '%d'], delimiter=',',
-                   header='layer,index,ms,pushed', comments='')
-        l1 = st[st[:, 0] == 1]
-        backlog = l1[:, 3] - (l1[:, 1] * 5 + 10)   # scans that had arrived past the window's last frame when it finished
-        others = ' '.join(f'L{l} {int((st[:, 0] == l).sum())}x{st[st[:, 0] == l, 2].mean():.0f}ms' for l in sorted(set(st[:, 0].astype(int))) if l != 1)
-        print(f'hba: L1 windows {len(l1)} ms mean {l1[:, 2].mean():.0f} p95 {np.percentile(l1[:, 2], 95):.0f} max {l1[:, 2].max():.0f}, '
-              f'backlog scans max {backlog.max():.0f}; {others}; finish {hba.finish_ms() / 1e3:.1f} s')
+        st = np.array(hba.stats()).reshape(-1, 7)   # round, start_scan, kfs, iters, ba_ms, pgo_ms, done_scan(-1: 끝에서 버림)
+        np.savetxt(os.path.join(os.path.dirname(a.out), 'hba_rounds.csv'), st, fmt=['%d', '%d', '%d', '%d', '%.1f', '%.1f', '%d'], delimiter=',',
+                   header='round,start_scan,kfs,iters,ba_ms,pgo_ms,done_scan', comments='')
+        used = st[st[:, 6] >= 0]
+        gaps = np.diff(st[:, 1]) if len(st) > 1 else np.zeros(1)
+        print(f'hba: rounds {len(st)} (used {len(used)}), kfs last {int(st[-1, 2]) if len(st) else 0}, ba s first/last '
+              f'{st[0, 4] / 1e3 if len(st) else 0:.2f}/{st[-1, 4] / 1e3 if len(st) else 0:.2f}, pgo ms max {used[:, 5].max() if len(used) else 0:.0f}, '
+              f'round gap scans med/max {np.median(gaps):.0f}/{gaps.max():.0f}, discarded wait {hba.pending_ms() / 1e3:.1f} s')
     if a.online_bag:   # 지연 = pose 가 나온 시각 - 그 이미지가 찍힌 시각(재생 시계). LiDAR 스캔이 끝나길 기다리는 몫(<= 0.1 s) 포함
         lag = np.array([dataset.lag(t, w) for t, w in zip(pipeline.stamps, pipeline.done)]) * 1e3
         np.savetxt(os.path.join(os.path.dirname(a.out), 'latency.csv'), np.c_[pipeline.stamps, lag], fmt=['%.9f', '%.3f'], delimiter=',', header='stamp,lag_ms', comments='')

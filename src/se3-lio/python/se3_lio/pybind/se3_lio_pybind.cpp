@@ -215,9 +215,10 @@ public:
     explicit OnlineHBAWrapper(const se3_lio::hba::Params &params) : hba_(params) {}
 
     void Push(const Eigen::Vector4d &q_xyzw, const Eigen::Vector3d &p,
-              const py::array_t<float, py::array::c_style | py::array::forcecast> &xyz) {
+              const py::array_t<float, py::array::c_style | py::array::forcecast> &xyz, double stamp, const Eigen::Vector3d &acc,
+              const Eigen::Vector3d &ba, const Eigen::Vector3d &grav) {
         if (xyz.ndim() != 2 || xyz.shape(1) != 3) throw std::invalid_argument("xyz must have shape (N, 3)");
-        hba_.push(q_xyzw, p, xyz.data(), static_cast<int>(xyz.shape(0)));
+        hba_.push(q_xyzw, p, xyz.data(), static_cast<int>(xyz.shape(0)), stamp, acc, ba, grav);
     }
 
     py::array_t<double> Finish() {
@@ -238,13 +239,13 @@ public:
         return out;
     }
 
-    std::vector<std::tuple<int, int, double, int>> Stats() const {
-        std::vector<std::tuple<int, int, double, int>> out;
-        for (const auto &s : hba_.stats()) out.emplace_back(s.layer, s.index, s.ms, s.pushed);
+    std::vector<std::tuple<int, int, int, int, double, double, int>> Stats() const {
+        std::vector<std::tuple<int, int, int, int, double, double, int>> out;
+        for (const auto &s : hba_.stats()) out.emplace_back(s.round, s.start_scan, s.kfs, s.iters, s.ba_ms, s.pgo_ms, s.done_scan);
         return out;
     }
 
-    double FinishMs() const { return hba_.finish_ms(); }
+    double PendingMs() const { return hba_.pending_ms(); }
 
 private:
     se3_lio::hba::OnlineHBA hba_;
@@ -356,12 +357,16 @@ PYBIND11_MODULE(se3_lio_pybind, m) {
         .def_readwrite("reject_ratio", &HBAParams::reject_ratio)
         .def_readwrite("max_iter", &HBAParams::max_iter)
         .def_readwrite("layers", &HBAParams::layers)
-        .def_readwrite("threads", &HBAParams::threads);
+        .def_readwrite("threads", &HBAParams::threads)
+        .def_readwrite("every", &HBAParams::every)
+        .def_readwrite("hess_const", &HBAParams::hess_const)
+        .def_readwrite("gravity_sigma_deg", &HBAParams::gravity_sigma_deg)
+        .def_readwrite("gravity_file", &HBAParams::gravity_file);
 
     py::class_<OnlineHBAWrapper>(m, "_OnlineHBA")
         .def(py::init<const HBAParams &>(), "params"_a)
-        .def("push", &OnlineHBAWrapper::Push, "q_xyzw"_a, "p"_a, "xyz"_a)
+        .def("push", &OnlineHBAWrapper::Push, "q_xyzw"_a, "p"_a, "xyz"_a, "stamp"_a, "acc"_a, "ba"_a, "grav"_a)
         .def("finish", &OnlineHBAWrapper::Finish)
         .def("stats", &OnlineHBAWrapper::Stats)
-        .def("finish_ms", &OnlineHBAWrapper::FinishMs);
+        .def("pending_ms", &OnlineHBAWrapper::PendingMs);
 }

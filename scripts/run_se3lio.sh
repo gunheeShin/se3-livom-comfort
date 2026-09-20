@@ -17,14 +17,17 @@
 #   --stage-timing: 코어 3구간 시간(predict·update·map ms)을 run.log 에 TIMING 줄로 남긴다(SE3LIO_TIMING=1). update = LiDAR + 카메라 갱신, map = 복셀 + visual 맵, leaf·inl = 그 스캔의 다운샘플 격자와 LiDAR inlier 수
 #   --viz:          시각화 덤프 results/<name>/viz.npz. 호스트에서 python3 tools/viz_rrd.py results/<name>/viz.npz → viz.rrd (rerun-sdk·뷰어 0.33.1)
 #   --dump:         디스큐 스캔을 results/<name>/scans/00000.pcd… 로 저장(궤적 행과 1:1, HBA 입력, 미션당 3~8 GB)
-#   --hba:          온라인 HBA 백엔드 — 주행 중 아래층 창 BA, 마지막 스캔 뒤 맨 위층 BA·PGO. results/<name>/<seq>_hba.tum(IMU) · _hba_prism.tum · hba_timing.csv, 이름에 -hba
-#   --hba-set K=V,…: HBA 인자(voxel_size=1.0,downsample_size=0,eigen_ratio=0.1,reject_ratio=0.05,max_iter=10,layers=3,threads=16). 7000스캔급은 --mem 32
+#   --hba:          온라인 HBA 백엔드 — 키프레임(25스캔) 4개(10 s)마다 지금까지 전부를 LIO pose 에서 global BA 하고 iSAM2 PGO 에 넣는다(창 BA 없음).
+#                   끝에는 아무것도 안 돌리고 그 시점의 추정치가 results/<name>/<seq>_hba.tum(IMU) · _hba_prism.tum, 회차 기록 hba_rounds.csv, 이름에 -hba
+#   --hba-set K=V,…: HBA 인자(voxel_size=1.0,downsample_size=0.2,eigen_ratio=0.01,reject_ratio=0.05,max_iter=10,layers=3,threads=8,every=4,hess_const=a:b:c:d:e:f,gravity_sigma_deg=0.02). 중력 factor 는 정지 토막(4 s)의 가속도계 평균을 LIO bias·중력 기준으로 정지 노드에(0 이면 끔)
+#   --omp N:        LIO OMP 스레드 수를 프로필 값(rt 8 · 내부 4) 대신 N 으로. HBA 워커(threads)와 코어를 나눌 때 쓴다
+#   --hba-gravity F: 대신 정지 노드 중력 factor 파일(comfort_ws runs/백앤드/HBA_확정입력/gravity/<seq>-gn020.txt)을 results/<name>/gravity.txt 로 복사해 넣는다(검증용)
 set -euo pipefail
 WS="$(realpath "$(dirname "$0")/..")"
 DATA=/media/gunhee/gun_T7_17/Research/LIO/PublichDataset/grandtour
 SEQ="$1"; shift; ARGS="$*"
-TAG=""; IMUDT=""; LIDAR=""; CFG=/ws/src/se3-lio/config/comfort.yaml; SET=""; CAM=1; LIVO=1; IMGDT=""; CAMS=front_center; DUMP=""; RT=""; VIZ=""; OB=""; HBA=""; HBASET=""
-while [ $# -gt 0 ]; do case "$1" in --tag) TAG="-$2"; shift;; --imu-dt) IMUDT="$2"; shift;; --lidar) LIDAR="$2"; shift;; --config) CFG="$2"; shift;; --set) SET="$SET --set $2"; shift;; --cam) CAM=1; LIVO="";; --lio-only) CAM=""; LIVO="";; --online-bag) OB=1;; --cams) CAMS="$2"; shift;; --img-dt) IMGDT="$2"; shift;; --dump) DUMP=1;; --rt) RT=1;; --viz) VIZ=1;; --stage-timing) export SE3LIO_TIMING=1;; --livo) CAM=1; LIVO=1;; --hba) HBA=1;; --hba-set) HBASET="$2"; shift;; esac; shift; done
+TAG=""; IMUDT=""; LIDAR=""; CFG=/ws/src/se3-lio/config/comfort.yaml; SET=""; CAM=1; LIVO=1; IMGDT=""; CAMS=front_center; DUMP=""; RT=""; VIZ=""; OB=""; HBA=""; HBASET=""; HBAGRAV=""; OMP=""
+while [ $# -gt 0 ]; do case "$1" in --tag) TAG="-$2"; shift;; --imu-dt) IMUDT="$2"; shift;; --lidar) LIDAR="$2"; shift;; --config) CFG="$2"; shift;; --set) SET="$SET --set $2"; shift;; --cam) CAM=1; LIVO="";; --lio-only) CAM=""; LIVO="";; --online-bag) OB=1;; --cams) CAMS="$2"; shift;; --img-dt) IMGDT="$2"; shift;; --dump) DUMP=1;; --rt) RT=1;; --viz) VIZ=1;; --stage-timing) export SE3LIO_TIMING=1;; --livo) CAM=1; LIVO=1;; --hba) HBA=1;; --hba-set) HBASET="$2"; shift;; --hba-gravity) HBAGRAV="$2"; shift;; --omp) OMP="$2"; shift;; esac; shift; done
 
 MDIR=$(ls -d "$DATA"/*_"${SEQ^^}"_release_* | head -1)
 OFF="$MDIR/comfort_offline"
@@ -34,6 +37,7 @@ MODE=""; [ -z "$CAM" ] || MODE="-cam"; [ -z "$LIVO" ] || MODE="-livo"
 NCAM=$(tr , "\n" <<<"$CAMS" | wc -l); [ "$NCAM" -le 1 ] || MODE="$MODE-${NCAM}cam"
 NAME="$SEQ-se3lio${LIDAR:+-$LIDAR}$MODE$TAG${HBA:+-hba}${RT:+-rt}${OB:+-online}"
 export OMP_NUM_THREADS=$([ -n "$RT" ] && echo 8 || echo 4)
+[ -z "$OMP" ] || export OMP_NUM_THREADS=$OMP   # --omp N: LIO 스레드 수를 프로필과 다르게(HBA 워커와 8코어를 나눌 때)
 SET="--set visual_en=${LIVO:-0}$SET"   # yaml 기본이 켜짐이라 어느 쪽이든 명시한다. 뒤에 오는 사용자 --set 이 이긴다
 CAMARG="--cams none"; [ -z "$CAM" ] || CAMARG="--cams $CAMS${IMGDT:+ --img-time-offset $IMGDT}"
 OUT="$WS/results/$NAME"
@@ -48,6 +52,7 @@ git -C "$WS" rev-parse HEAD > "$PROV/commit"
 { git -C "$WS" diff --binary HEAD
   git -C "$WS" ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do git -C "$WS" diff --binary --no-index /dev/null "$f" || true; done
 } > "$PROV/diff.patch"
+[ -z "$HBAGRAV" ] || { cp "$HBAGRAV" "$WS/results/$NAME/gravity.txt"; HBASET="${HBASET:+$HBASET,}gravity_file=/ws/results/$NAME/gravity.txt"; }
 { echo "date: $(date -Is)"; echo "cmd: $0 $SEQ $ARGS"; echo "HRUN_PIN=$HRUN_PIN HRUN_CPUS=${HRUN_CPUS:-} HRUN_MEM=${HRUN_MEM:-}"
   echo "image: $(docker image inspect --format '{{.Id}}' "${IMAGE:-comfort:ros1}")"; echo "lidar_dir: $LIDAR_DIR"; echo "config: $CFG"; echo "set: $SET"; echo "hba: ${HBA:+1 $HBASET}"; echo "OMP_NUM_THREADS=$OMP_NUM_THREADS rt=${RT:-0}"; } > "$PROV/run.txt"
 
