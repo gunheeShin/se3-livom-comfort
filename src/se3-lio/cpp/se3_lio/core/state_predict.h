@@ -150,8 +150,8 @@ private:
     std::vector<double> range_noises_;
     std::vector<double> angle_noises_;
 
-    Eigen::Vector3d init_mean_acc_;
-    Eigen::Vector3d init_mean_gyr_;
+    Eigen::Vector3d init_mean_acc_ = Eigen::Vector3d::Zero();  // running means over the init window; the first sample is
+    Eigen::Vector3d init_mean_gyr_ = Eigen::Vector3d::Zero();  // added as x += (a - x), so an uninitialized x leaks into the result
     Eigen::Vector3d init_cov_acc_;
     Eigen::Vector3d init_cov_gyr_;
 
