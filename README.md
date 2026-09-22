@@ -1,10 +1,9 @@
 # SE(3)-LIVOM for the COMFORT Localization Benchmark
 
-Our entry to the COMFORT Localization Benchmark (GrandTour, IROS 2026 Data in Field Robotics workshop):
-multi-LiDAR-inertial-visual odometry on SE(3) with an online backend, built on
-[se3-lio](https://github.com/url-kaist/se3-lio), [FAST-LIVO2](https://github.com/hku-mars/FAST-LIVO2)
-(photometric update), [HBA](https://github.com/hku-mars/HBA) (plane BA, vendored under
-`src/se3-lio/cpp/se3_lio/backend/`) and [GTSAM](https://github.com/borglab/gtsam) (iSAM2). GPL-2.0.
+Our entry to the [COMFORT Localization Benchmark](https://grand-tour.leggedrobotics.com/tasks/localization)
+([GrandTour Dataset](https://grand-tour.leggedrobotics.com/), [IROS 2026 Data in Field Robotics workshop](https://jonasfrey96.github.io/data_in_field_robotics/)).
+
+**SE(3)-LIVOM: Adaptive Multi-LiDAR-Inertial-Visual Odometry and Mapping for the COMFORT Benchmark**
 
 <table align="center">
   <tr>
@@ -16,6 +15,10 @@ multi-LiDAR-inertial-visual odometry on SE(3) with an online backend, built on
     <td align="center"><sub><a href="https://youtu.be/2fzHPVpcxvc">▶ Adaptive downsampling on ARC-2</a></sub></td>
   </tr>
 </table>
+
+## Framework
+
+<p align="center"><img src="pictures/framework.png" alt="Pipeline of SE(3)-LIVOM" width="100%" /></p>
 
 ## Build
 
