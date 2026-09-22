@@ -1,0 +1,15 @@
+# Per-mission IMU time offset in seconds (STIM320 has no hardware sync). Measured once per mission by
+# cross-correlating the trajectory rotation with the gyro. scripts/run_se3lio.sh reads the entry of <seq>
+# unless --imu-dt is given.
+arc-2: -0.0073
+arc-3: -0.0056
+arc-6: -0.0065
+arc-7: -0.0047
+con-3: -0.0060
+con-4: -0.0064
+eig-1: -0.0057
+eig-2: -0.0054
+snow-2: -0.0055
+snow-3: -0.0048
+spx-1: -0.0044
+spx-2: -0.0074

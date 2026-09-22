@@ -3,7 +3,7 @@
 # Usage: bash scripts/make_submission.sh <tag> <out.zip>
 set -euo pipefail
 WS="$(realpath "$(dirname "$0")/..")"
-DATA=/media/gunhee/gun_T7_17/Research/LIO/PublichDataset/grandtour
+DATA="${DATA:?set DATA to the folder that holds the GrandTour mission folders}"
 TAG="$1"; ZIP="$(realpath -m "$2")"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 for SEQ in arc-2 arc-7 con-4 eig-1 snow-2 spx-2; do

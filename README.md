@@ -1,55 +1,52 @@
 # SE(3)-LIVOM
 
-Multi-LiDAR-inertial odometry on SE(3), built on [url-kaist/se3-lio](https://github.com/url-kaist/se3-lio).
-Entry for the COMFORT Localization Benchmark (GrandTour, IROS 2026 Data in Field Robotics workshop).
+Multi-LiDAR-inertial-visual odometry on SE(3) with an online backend, built on
+[se3-lio](https://github.com/url-kaist/se3-lio), [FAST-LIVO2](https://github.com/hku-mars/FAST-LIVO2)
+(photometric update), [HBA](https://github.com/hku-mars/HBA) (plane BA, vendored under
+`src/se3-lio/cpp/se3_lio/backend/`) and [GTSAM](https://github.com/borglab/gtsam) (iSAM2).
+Entry to the COMFORT Localization Benchmark (GrandTour, IROS 2026). GPL-2.0.
 
-Default pipeline: Hesai XT32 + Livox Mid-360 merged in the core, STIM320 IMU, and one fisheye camera (Alphasense front_center) as a sparse-direct photometric update after the LiDAR update. `--lio-only` turns the camera off.
-
-`--backend` adds an online backend: a global plane bundle adjustment (BA math vendored from hku-mars/HBA, GPL-2.0, under `src/se3-lio/cpp/se3_lio/backend/`) and an incremental pose graph (GTSAM). Keyframes of 25 scans accumulate while the robot moves; every 4 new keyframes a worker thread re-solves the BA over all keyframes from the LIO poses and feeds the all-pair relative poses into an incremental pose graph (iSAM2) together with per-scan odometry factors and gravity factors from stationary segments. Nothing runs after the last scan: the pose graph estimate at that moment is the output, `<seq>_backend.tum`, next to the LIO one.
-
-## Real-time environment
-
-All numbers are measured inside Docker with fixed limits: 8 CPUs (`--cpus=8`, pinned to the P-cores of an Intel Core i9-13900), 16 GB of RAM (`--memory=16g`), no GPU. The frontend runs on 4 threads (`--omp 4`) and the backend on 4 (`--backend-set threads=4`).
-
-On the 12 report missions played from the bags at 1x (`--online-bag`): frontend 28–42 ms per scan (100 ms exceeded on 10 scans of CON-4 only), data-to-pose latency 51–143 ms mean, one backend round every 10 s taking 0.6–18 s, peak resident memory 5.3–16.7 GB (the longest missions, ARC-3 and CON-4, sit at the 16 GB cap; the visual map takes most of it).
-
-## Reproduce
-
-Data: the GrandTour mission folders `<id>_<MISSION>_release_<date>/` with their bags (`*_hesai.bag`, `*_livox.bag`, `*_stim320_imu.bag`, `*_alphasense.bag`, `*_tf_minimal.bag`). `--online-bag` reads the bags directly; the offline path needs `tools/extract.py` once per mission (see `scripts/run_se3lio.sh`). Both give the same frontend trajectory bit for bit.
+## Build
 
 ```bash
-bash docker/build_docker.sh                 # image comfort:ros1 (ROS Noetic, PCL, GTSAM, the se3_lio Python binding)
-# one mission, played at 1x, with the backend — what submission 935484 ran:
-HRUN_FROM=comfort hrun --mem 16 --cpus 8 --gpu 0 --pin p \
-  bash scripts/run_se3lio.sh <seq> --lidar multi --imu-dt <dt> --tag ad-n2000 --rt --omp 4 --online-bag --backend --backend-set threads=4
-# frontend only — what submission 933011 ran:
-HRUN_FROM=comfort hrun --mem 16 --cpus 8 --gpu 0 --pin p \
-  bash scripts/run_se3lio.sh <seq> --lidar multi --imu-dt <dt> --tag ad-n2000 --rt --omp 4 --online-bag
+bash docker/build_docker.sh      # image comfort:ros1
 ```
 
-`hrun` is our job queue; it only wraps `docker run --rm --cpus=8 --memory=16g --cpuset-cpus=<P-cores>`. Without it, run the same `scripts/run_se3lio.sh` line inside such a container with `HRUN_PIN` set to the P-core list. The exact inner command, config, commit and image id of every run are written to `results/<name>/provenance/run.txt`.
-
-Per-mission IMU time offset `--imu-dt` (seconds, STIM320 has no hardware sync; measured once per mission by cross-correlating the trajectory rotation with the gyro):
-
-| ARC-2 | ARC-7 | CON-4 | EIG-1 | SNOW-2 | SPX-2 | ARC-3 | ARC-6 | CON-3 | EIG-2 | SNOW-3 | SPX-1 |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| -0.0073 | -0.0047 | -0.0064 | -0.0057 | -0.0055 | -0.0074 | -0.0056 | -0.0065 | -0.0060 | -0.0054 | -0.0048 | -0.0044 |
-
-Outputs in `results/<seq>-se3lio-multi-livo-ad-n2000[-backend]-rt-online/`: `<seq>_imu.tum` (frontend, IMU frame), `<seq>.tum` (frontend, prism frame = submission format, via `tools/to_prism.py`), `<seq>_backend.tum` / `<seq>_backend_prism.tum` (backend), `timing.csv` (per-scan ms and RSS), `latency.csv`, `backend_rounds.csv`, `run.log`. Validation missions are scored against `comfort_offline/gt.tum` with `tools/eval.py` (same pairing rule as the Codabench scorer).
-
-Submission zip: the six Test prism trajectories renamed `<seq>.tum` (10 Hz raw output, no grid, no gaps):
+## Run
 
 ```bash
-# 935484: backend output          933011: frontend output
-for s in arc-2 arc-7 con-4 eig-1 snow-2 spx-2; do
-  cp results/$s-se3lio-multi-livo-ad-n2000-backend-rt-online/${s}_backend_prism.tum tmp/$s.tum   # 933011: results/$s-...-ad-n2000-rt-online/$s.tum
-done; (cd tmp && zip -j ../submission.zip *.tum)
+export DATA=/path/to/grandtour   # folder with the mission folders <id>_<MISSION>_release_<date>/ and their bags
+bash scripts/run.sh arc-2 frontend   # frontend only (submission 933011)
+bash scripts/run.sh arc-2            # frontend + backend (submission 935484, the leaderboard entry)
 ```
 
-Reproduction status (2026-09-21, commit with this README): the frontend trajectories of all 12 missions are bit-identical (md5) to the 933011 submission files and to earlier runs; the backend trajectories of 935484 reproduce within 0.5 cm (its rounds run on wall-clock time, so which keyframes each round covers can shift by one).
+The container runs with `--cpus=8 --memory=16g` (`CPUSET=<cores>` pins it, e.g. the P-cores of an i9-13900 in
+our runs). Per-mission IMU time offsets are in `src/se3-lio/config/imu_dt.yaml`; all options are in
+`scripts/run_se3lio.sh`.
 
-Scores (Codabench, average ATE over the six Test missions): 933011 frontend 1.66 cm, 935484 frontend + backend 1.40 cm.
+Output: `results/<seq>-se3lio-multi-livo-ad-n2000[-backend]-rt-online/<seq>.tum` (frontend, prism frame)
+and `<seq>_backend_prism.tum` (backend). These files, renamed `<seq>.tum`, are the submission.
 
-## License
+The prism frame comes from `tools/to_prism.py`: `T_imu_prism` of the mission's `/tf_static` plus a constant
+lever-arm correction of (-5.7, 1.8, -11.4) mm in the IMU frame, fitted once on the six Validation missions and
+applied unchanged to every mission.
 
-GPL-2.0, same as se3-lio.
+## Evaluate
+
+```bash
+bash docker/run_docker.sh python3 tools/eval.py results/<name>/<seq>.tum <gt.tum>   # same ATE rule as the Codabench scorer
+```
+
+`<gt.tum>` is the prism ground truth of a Validation mission (`tools/extract.py <mission_dir>` writes it to
+`<mission_dir>/comfort_offline/gt.tum`).
+
+## References
+
+| used for | code | paper |
+|---|---|---|
+| frontend (SE(3) filter) | [url-kaist/se3-lio](https://github.com/url-kaist/se3-lio) | |
+| voxel map | [hku-mars/VoxelMap](https://github.com/hku-mars/VoxelMap) | Yuan et al., RA-L 2022 |
+| photometric update, LIO parameters | [hku-mars/FAST-LIVO2](https://github.com/hku-mars/FAST-LIVO2) | Zheng et al., T-RO 2024 |
+| backend plane BA | [hku-mars/HBA](https://github.com/hku-mars/HBA) | Liu et al., RA-L 2023 |
+| backend pose graph (iSAM2) | [borglab/gtsam](https://github.com/borglab/gtsam) | Kaess et al., IJRR 2012 |
+| evaluation | [MichaelGrupp/evo](https://github.com/MichaelGrupp/evo) | |

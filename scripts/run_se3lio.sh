@@ -1,7 +1,8 @@
 #!/bin/bash
 # One-mission SE(3)-LIO run: check extract -> (build the binding if missing) -> se3lio_run -> prism conversion -> evaluation.
-# On the host: HRUN_FROM=se3lio-multi hrun --mem 16 --cpus 8 --gpu 0 --pin p bash scripts/run_se3lio.sh <seq> [--tag NAME] [--lidar multi] [--imu-dt S] [--config PATH] [--set KEY=VAL ...]
+# On the host: bash scripts/run_se3lio.sh <seq> [--tag NAME] [--lidar multi] [--config PATH] [--set KEY=VAL ...]
 #   --set KEY=VAL: override an SE3LIOConfig field (max_iter=10). May be repeated
+#   --imu-dt S:     IMU time offset (s); default = the <seq> entry of src/se3-lio/config/imu_dt.yaml
 #   Output: results/<seq>-se3lio[-<tag>]/{<seq>_imu.tum,<seq>.tum,gt.tum,run.log,provenance/}
 #   --lidar multi:  read comfort_offline/lidar/ + livox/ separately and let the se3-lio core merge them (no deduplication). Without livox/: extract --livox-only
 #   The camera is on by default: image stamps are the epoch boundaries + photometric update (visual_en=1). Result name gets -livo (--livo is kept for old calls, same as default)
@@ -11,8 +12,7 @@
 #   --cam:          use image stamps as epoch boundaries only, no photometric update. Result name gets -cam
 #   --cams A,B:     camera list (default front_center). Several: name gets -<N>cam. Without cam_<name>/: extract --cams-only
 #   --img-dt S:     image time offset (s, se3lio_run --img-time-offset)
-#   --rt:           public (measured) profile: OMP 8 threads, result name gets -rt. Run alone with hrun --cpus all (ms/scan is disturbed by neighbouring jobs)
-#   The default (internal) profile is OMP 4 threads: 3 at a time with hrun --cpus 8. Either way timing.csv is written
+#   --rt:           measured profile: OMP 8 threads, result name gets -rt. The default profile is OMP 4 threads. Either way timing.csv is written
 #   --stage-timing: log the three core stages (predict, update, map ms) as TIMING lines in run.log (SE3LIO_TIMING=1). update = LiDAR + camera update, map = voxel + visual map, leaf/inl = downsample grid and LiDAR inlier count of that scan
 #   --backend:      online backend: every 4 keyframes (25 scans each, 10 s) a global plane BA over everything so far from the LIO poses, fed into an iSAM2 pose graph (no window BA).
 #                   Nothing runs at the end; the estimate at that moment goes to results/<name>/<seq>_backend.tum (IMU) and _backend_prism.tum, rounds to backend_rounds.csv, name gets -backend
@@ -20,11 +20,13 @@
 #   --omp N:        LIO OMP thread count instead of the profile value (rt 8, internal 4). Used to share cores with the backend worker (threads)
 set -euo pipefail
 WS="$(realpath "$(dirname "$0")/..")"
-DATA=/media/gunhee/gun_T7_17/Research/LIO/PublichDataset/grandtour
+DATA="${DATA:?set DATA to the folder that holds the GrandTour mission folders}"
 SEQ="$1"; shift; ARGS="$*"
 TAG=""; IMUDT=""; LIDAR=""; CFG=/ws/src/se3-lio/config/comfort.yaml; SET=""; CAM=1; LIVO=1; IMGDT=""; CAMS=front_center; RT=""; OB=""; BACKEND=""; BACKENDSET=""; OMP=""
 while [ $# -gt 0 ]; do case "$1" in --tag) TAG="-$2"; shift;; --imu-dt) IMUDT="$2"; shift;; --lidar) LIDAR="$2"; shift;; --config) CFG="$2"; shift;; --set) SET="$SET --set $2"; shift;; --cam) CAM=1; LIVO="";; --lio-only) CAM=""; LIVO="";; --online-bag) OB=1;; --cams) CAMS="$2"; shift;; --img-dt) IMGDT="$2"; shift;; --rt) RT=1;; --stage-timing) export SE3LIO_TIMING=1;; --livo) CAM=1; LIVO=1;; --backend) BACKEND=1;; --backend-set) BACKENDSET="$2"; shift;; --omp) OMP="$2"; shift;; esac; shift; done
 
+[ -n "$IMUDT" ] || IMUDT=$(awk -v s="$SEQ:" '$1 == s {print $2}' "$WS/src/se3-lio/config/imu_dt.yaml")
+[ -n "$IMUDT" ] || { echo "[$SEQ] no --imu-dt and no entry in src/se3-lio/config/imu_dt.yaml"; exit 2; }
 MDIR=$(ls -d "$DATA"/*_"${SEQ^^}"_release_* | head -1)
 OFF="$MDIR/comfort_offline"
 LIDAR_DIR="$OFF/lidar"; LIVOX=""
@@ -39,14 +41,12 @@ CAMARG="--cams none"; [ -z "$CAM" ] || CAMARG="--cams $CAMS${IMGDT:+ --img-time-
 OUT="$WS/results/$NAME"
 mkdir -p "$OUT"
 
-PCORES=$(cat /sys/devices/cpu_core/cpus)
-[ "${HRUN_PIN:-}" = "$PCORES" ] || { echo "[$SEQ] runs only under hrun --pin p (HRUN_PIN='${HRUN_PIN:-}', P-cores=$PCORES)"; exit 2; }
 PROV="$OUT/provenance"; mkdir -p "$PROV"
 git -C "$WS" rev-parse HEAD > "$PROV/commit"
 { git -C "$WS" diff --binary HEAD
   git -C "$WS" ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do git -C "$WS" diff --binary --no-index /dev/null "$f" || true; done
 } > "$PROV/diff.patch"
-{ echo "date: $(date -Is)"; echo "cmd: $0 $SEQ $ARGS"; echo "HRUN_PIN=$HRUN_PIN HRUN_CPUS=${HRUN_CPUS:-} HRUN_MEM=${HRUN_MEM:-}"
+{ echo "date: $(date -Is)"; echo "cmd: $0 $SEQ $ARGS"; echo "docker: cpus=${CPUS:-8} mem=${MEM:-16g} cpuset=${CPUSET:-}"
   echo "image: $(docker image inspect --format '{{.Id}}' "${IMAGE:-comfort:ros1}")"; echo "lidar_dir: $LIDAR_DIR"; echo "config: $CFG"; echo "set: $SET"; echo "backend: ${BACKEND:+1 $BACKENDSET}"; echo "OMP_NUM_THREADS=$OMP_NUM_THREADS rt=${RT:-0}"; } > "$PROV/run.txt"
 
 SRC="'$OFF' '$LIDAR_DIR'"; CALIB="$OFF/calib.json"
