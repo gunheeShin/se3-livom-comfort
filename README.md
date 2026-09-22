@@ -1,10 +1,10 @@
-# SE(3)-LIVOM
+# SE(3)-LIVOM for the COMFORT Localization Benchmark
 
-Multi-LiDAR-inertial-visual odometry on SE(3) with an online backend, built on
+Our entry to the COMFORT Localization Benchmark (GrandTour, IROS 2026 Data in Field Robotics workshop):
+multi-LiDAR-inertial-visual odometry on SE(3) with an online backend, built on
 [se3-lio](https://github.com/url-kaist/se3-lio), [FAST-LIVO2](https://github.com/hku-mars/FAST-LIVO2)
 (photometric update), [HBA](https://github.com/hku-mars/HBA) (plane BA, vendored under
-`src/se3-lio/cpp/se3_lio/backend/`) and [GTSAM](https://github.com/borglab/gtsam) (iSAM2).
-Entry to the COMFORT Localization Benchmark (GrandTour, IROS 2026). GPL-2.0.
+`src/se3-lio/cpp/se3_lio/backend/`) and [GTSAM](https://github.com/borglab/gtsam) (iSAM2). GPL-2.0.
 
 ## Build
 
