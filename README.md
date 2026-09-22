@@ -60,7 +60,7 @@ bash docker/run_docker.sh python3 tools/eval.py results/<name>/<seq>.tum <gt.tum
 |---|---|---|
 | frontend (SE(3) filter) | [url-kaist/se3-lio](https://github.com/url-kaist/se3-lio) | Shin et al., ICRA 2026 |
 | voxel map | [hku-mars/VoxelMap](https://github.com/hku-mars/VoxelMap) | Yuan et al., RA-L 2022 |
-| photometric update, LIO parameters | [hku-mars/FAST-LIVO2](https://github.com/hku-mars/FAST-LIVO2) | Zheng et al., T-RO 2024 |
+| photometric update | [hku-mars/FAST-LIVO2](https://github.com/hku-mars/FAST-LIVO2) | Zheng et al., T-RO 2024 |
 | backend plane BA | [hku-mars/HBA](https://github.com/hku-mars/HBA) | Liu et al., RA-L 2023 |
 | backend pose graph (iSAM2) | [borglab/gtsam](https://github.com/borglab/gtsam) | Kaess et al., IJRR 2012 |
 | evaluation | [MichaelGrupp/evo](https://github.com/MichaelGrupp/evo) | |
