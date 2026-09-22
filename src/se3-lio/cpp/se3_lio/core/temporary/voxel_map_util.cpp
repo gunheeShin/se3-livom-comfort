@@ -8,8 +8,7 @@
 
 #include <cstdlib>
 
-// env SE3_LIO_OMP_THREADS overrides the MP_PROC_NUM default (benchmark sets 1
-// for deterministic single-threaded runs).
+// env SE3_LIO_OMP_THREADS overrides the MP_PROC_NUM default (1 = deterministic single-threaded run).
 static int se3_lio_omp_threads() {
     const char *e = std::getenv("SE3_LIO_OMP_THREADS");
     return (e && std::atoi(e) > 0) ? std::atoi(e) : MP_PROC_NUM;

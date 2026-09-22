@@ -174,7 +174,7 @@ public:
         init_octo_ = false;
         update_enable_ = true;
         update_cov_enable_ = true;
-        max_plane_update_threshold_ = layer_point_size_[layer_];  // 이 수를 넘으면 plane update
+        max_plane_update_threshold_ = layer_point_size_[layer_];  // plane update above this count
         for (int i = 0; i < 8; i++) {
             leaves_[i] = nullptr;
         }

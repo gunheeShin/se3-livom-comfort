@@ -37,20 +37,21 @@ def _rss_mb():
 class OdometryPipeline:
     """Run SE3LIO over an iterable dataset of frames and collect the trajectory."""
 
-    def __init__(self, dataset, config, extrinsic=None, hba=None):
+    def __init__(self, dataset, config, extrinsic=None, backend=None):
         self.dataset = dataset
         self.odometry = SE3LIO(config, extrinsic)
-        self.hba = hba  # _OnlineHBA: gets every pose + deskewed cloud, finish() gives the refined poses
-        self.poses_hba = None
+        self.backend = backend  # _OnlineBackend: gets every pose + deskewed cloud, finish() gives the refined poses
+        self.poses_backend = None
         self.stamps = []
         self.poses = []  # list of 4x4
         self.pose_covs = []  # list of 6x6, error-state [t; omega] on T <- T*exp(xi)
         self.tracked = []  # visual points tracked per frame (0 when the camera is off)
         self.times_ms = []  # wall-clock of the core register call per frame
-        self.rss_mb = []  # resident memory of this process after each frame (LIO + HBA worker)
+        self.rss_mb = []  # resident memory of this process after each frame (LIO + backend worker)
+        self.leaf_m, self.inliers = [], []  # adaptive downsample per frame: grid and the LiDAR inlier count it reacts to
         self.done = []  # time.perf_counter() when each pose came out (online-bag latency)
 
-    def run(self, progress=True, logger=None, dump_dir=None):
+    def run(self, progress=True):
         frames = self.dataset
         if progress:
             try:
@@ -60,8 +61,6 @@ class OdometryPipeline:
                 frames = tqdm(self.dataset, total=total, desc="SE3-LIO", unit="frame")
             except ImportError:
                 pass
-        if dump_dir is not None:
-            os.makedirs(dump_dir, exist_ok=True)
         for frame in frames:
             t0 = time.perf_counter()
             if hasattr(frame, "scans"):
@@ -78,16 +77,14 @@ class OdometryPipeline:
             self.poses.append(np.array(state.pose))
             self.pose_covs.append(np.array(state.covariance)[:6, :6])
             self.tracked.append(self.odometry.num_tracked())
-            if self.hba is not None:
+            self.leaf_m.append(self.odometry.leaf())
+            self.inliers.append(self.odometry.inliers())
+            if self.backend is not None:
                 acc = frame.imu[:, 1:4].mean(0) if getattr(frame, "imu", None) is not None and len(frame.imu) else np.full(3, np.nan)
-                self.hba.push(_rot_to_quat_xyzw(self.poses[-1][:3, :3]), self.poses[-1][:3, 3], cloud, float(state.stamp),
+                self.backend.push(_rot_to_quat_xyzw(self.poses[-1][:3, :3]), self.poses[-1][:3, 3], cloud, float(state.stamp),
                               acc, np.asarray(state.ba, dtype=float), np.asarray(state.grav, dtype=float))
-            if dump_dir is not None:
-                _write_pcd(os.path.join(dump_dir, f"{len(self.poses) - 1:05d}.pcd"), cloud)
-            if logger is not None:
-                logger.log_frame(state.stamp, self.poses[-1], getattr(frame, "points", cloud), state.grav)  # multi: deskewed body-frame cloud
-        if self.hba is not None:
-            self.poses_hba = list(self.hba.finish())
+        if self.backend is not None:
+            self.poses_backend = list(self.backend.finish())
         return self
 
     def save_tum(self, path, poses=None):
@@ -102,9 +99,9 @@ class OdometryPipeline:
 
     def save_timing(self, path):
         with open(path, "w") as f:
-            f.write("stamp,ms,rss_mb\n")
-            for t, ms, mb in zip(self.stamps, self.times_ms, self.rss_mb):
-                f.write(f"{t:.9f},{ms:.3f},{mb:.0f}\n")
+            f.write("stamp,ms,rss_mb,leaf_m,inliers\n")
+            for t, ms, mb, lf, ni in zip(self.stamps, self.times_ms, self.rss_mb, self.leaf_m, self.inliers):
+                f.write(f"{t:.9f},{ms:.3f},{mb:.0f},{lf:.3f},{ni}\n")
 
     def save_cov(self, path):
         np.save(path, np.asarray(self.pose_covs))
@@ -129,14 +126,3 @@ class OdometryPipeline:
             + f"\ncore ms/frame: mean {np.mean(self.times_ms):.1f}, p95 {np.percentile(self.times_ms, 95):.1f}, "
               f"max {np.max(self.times_ms):.1f}, >100ms {np.mean(np.array(self.times_ms) > 100) * 100:.2f}%"
         )
-
-
-def _write_pcd(path, xyz):
-    """Deskewed body-frame scan as binary PCD (x y z intensity), one file per trajectory row (HBA input)."""
-    n = len(xyz)
-    data = np.zeros((n, 4), dtype=np.float32)
-    data[:, :3] = xyz
-    header = ("# .PCD v0.7 - Point Cloud Data file format\nVERSION 0.7\nFIELDS x y z intensity\nSIZE 4 4 4 4\n"
-              f"TYPE F F F F\nCOUNT 1 1 1 1\nWIDTH {n}\nHEIGHT 1\nVIEWPOINT 0 0 0 1 0 0 0\nPOINTS {n}\nDATA binary\n")
-    with open(path, "wb") as f:
-        f.write(header.encode()); f.write(data.tobytes())

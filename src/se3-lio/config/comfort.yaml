@@ -1,5 +1,5 @@
-# COMFORT(GrandTour) — FAST-LIVO2 src/FAST-LIVO2/config/GrandTour.yaml 의 LIO 값을 그대로 옮김.
-# extrinsic(t_exts/q_exts)은 미션별 calib.json T_imu_lidar 로 tools/se3lio_run.py 가 채운다.
+# COMFORT (GrandTour): LIO values copied from FAST-LIVO2 src/FAST-LIVO2/config/GrandTour.yaml.
+# extrinsic (t_exts/q_exts) is filled per mission by tools/se3lio_run.py from calib.json T_imu_lidar.
 sensors:
   imu:
     acc_cov: 0.5
@@ -8,19 +8,19 @@ sensors:
     b_gyr_cov: 0.0001
 
   lidar:
-    min_range: [0.6, 0.8]   # [Hesai, Livox]: preprocess.blind 0.6 · Livox 몸통 컷 0.8(merge_livox.py 와 같음). 코어 병합(--lidar multi)에서만 라이다별로 듣고, .bin 경로는 첫 값
+    min_range: [0.6, 0.8]   # [Hesai, Livox]: preprocess.blind 0.6, Livox body cut 0.8 (same as merge_livox.py). Per-LiDAR only in core merging (--lidar multi); the .bin path uses the first value
     point_filter_num: 1
-    # [Hesai XT32, Livox Mid-360] — 병합 스캔의 ring 200 이 Livox(idx 1). FL2 는 둘 다 dept_err 0.02 · beam_err 0.05.
-    # Hesai 데이터시트 0.005 는 못 쓴다: 대응점 게이트(3σ)가 좁아져 CON-3 Hesai 단독이 9.3 cm 로 드리프트(2026-09-14).
-    # Livox 는 데이터시트(≤0.02 @10 m · <0.15°).
+    # [Hesai XT32, Livox Mid-360]: ring 200 of the merged scan is Livox (idx 1). FL2 uses dept_err 0.02 and beam_err 0.05 for both.
+    # The Hesai datasheet 0.005 cannot be used: the correspondence gate (3 sigma) narrows and CON-3 Hesai-only drifts to 9.3 cm (2026-09-14).
+    # Livox follows its datasheet (<= 0.02 @ 10 m, < 0.15 deg).
     range_cov: [0.02, 0.02]    # m
     angle_cov: [0.05, 0.15]    # deg
 
 downsample:
   resolution: 0.1           # preprocess.filter_size_surf
-  target_inliers: 2000     # 직전 스캔 inlier 수가 이 값에 머물도록 격자를 resolution~max_resolution 사이에서 스캔마다 조절(0 = 끔, 고정 격자)
+  target_inliers: 2000     # adjust the grid per scan between resolution and max_resolution so the previous scan's inlier count stays near this (0 = off, fixed grid)
   max_resolution: 0.5
-  start_resolution: 0.25   # 시작 5 s 의 격자. 0.1 로 출발하면 SNOW-3 가 깨졌다(FAST-LIVO2 러너 실험, 2026-09-18)
+  start_resolution: 0.25   # grid for the first 5 s. Starting at 0.1 broke SNOW-3 (FAST-LIVO2 runner experiment, 2026-09-18)
 
 max_iter: 5                 # lio.max_iterations
 
@@ -29,25 +29,25 @@ voxel_map:
   max_layer: 2
   layer_size: [5, 5, 5, 5, 5]   # lio.layer_init_num
   max_point_size: 100       # lio.max_points_num
-  plane_threshold: 0.001    # lio.min_eigen_value 는 1e-4. se3-lio 는 실제 점 다운샘플(FL2 는 VoxelGrid 평균점)이라 잡음이 커 문턱을 올려야 같은 평면이 뽑힌다 — ARC-1 A/B 2026-09-14
+  plane_threshold: 0.001    # lio.min_eigen_value is 1e-4. se3-lio downsamples real points (FL2 uses VoxelGrid centroids), so noise is larger and the threshold must rise to pick the same planes (ARC-1 A/B 2026-09-14)
 
   map_sliding_en: false
   sliding_thresh: 8.0
   half_map_size: 100
 
-# 점-평면 잔차 분산 바닥값. FL2 는 R_inv = 1/(0.001 + σ) (voxel_map.cpp) — se3-lio 원본은 0.
-# ARC-3 2.07→1.58 · HEAP-1 1.78→1.12 cm (2026-09-14 코드 A/B); 디스큐 공분산·초기화는 무영향.
+# Floor of the point-to-plane residual variance. FL2 uses R_inv = 1/(0.001 + sigma) (voxel_map.cpp); the se3-lio original is 0.
+# ARC-3 2.07->1.58, HEAP-1 1.78->1.12 cm (code A/B 2026-09-14); deskew covariance and initialization had no effect.
 residual_floor: 0.001
 
-# 카메라(FAST-LIVO2식 sparse-direct photometric 갱신). 기본으로 켠다 — run_se3lio.sh --lio-only 가 끄고, 꺼지면 사진을 읽지 않고 LiDAR 갱신 경로는 그대로다.
-# 이미지 스탬프가 에폭 경계이고, calib.json 의 K·D·T_cam_lidar 로 카메라를 채운다.
-# 값은 GrandTour.yaml vio: 를 따른다. grid_size 는 FL2 규칙(grid_size<=10 이면 height/17)으로 1080/17.
-# exposure 추정(exposure_estimate_en)은 아직 없다. raycast·inverse composition 은 FL2 도 끈다.
+# Camera (FAST-LIVO2-style sparse-direct photometric update). On by default; run_se3lio.sh --lio-only turns it off, then no images are read and the LiDAR update path is unchanged.
+# Image stamps are the epoch boundaries, and the camera is filled from calib.json K, D and T_cam_lidar.
+# Values follow GrandTour.yaml vio:. grid_size follows the FL2 rule (grid_size <= 10 -> height/17) = 1080/17.
+# Exposure estimation (exposure_estimate_en) is not implemented. raycast and inverse composition are off in FL2 too.
 visual:
   enable: true
   max_iter: 5               # vio.max_iterations
   outlier_threshold: 500    # vio.outlier_threshold
-  img_point_cov: 10000      # vio.img_point_cov 는 1000. 그 무게로는 Val 어디서나 손해(+0.2~0.4 cm)라 1/10 로 낮췄다(2026-09-16)
+  img_point_cov: 10000      # vio.img_point_cov is 1000. That weight loses everywhere on Val (+0.2-0.4 cm), so it is lowered to 1/10 (2026-09-16)
   patch_size: 8             # vio.patch_size
   pyramid_levels: 4         # vio.patch_pyrimid_level
   grid_size: 63             # 1080/17

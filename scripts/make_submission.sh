@@ -1,6 +1,6 @@
 #!/bin/bash
-# results/<seq>-<tag>/<seq>_imu.tum (Test 6) → 제출 zip. 러너 원 출력(10 Hz)을 프리즘 위치(Δl 포함, tools/to_prism.py)로 옮겨 그대로 담는다.
-# 사용: bash scripts/make_submission.sh <tag> <out.zip>
+# results/<seq>-<tag>/<seq>_imu.tum (6 Test missions) -> submission zip. The raw runner output (10 Hz) is moved to the prism position (with dl, tools/to_prism.py) and packed as is.
+# Usage: bash scripts/make_submission.sh <tag> <out.zip>
 set -euo pipefail
 WS="$(realpath "$(dirname "$0")/..")"
 DATA=/media/gunhee/gun_T7_17/Research/LIO/PublichDataset/grandtour

@@ -1,0 +1,10 @@
+find_package(PCL REQUIRED COMPONENTS common)
+find_package(GTSAM REQUIRED)
+find_package(Threads REQUIRED)
+
+add_library(backend SHARED)
+add_library(se3_lio::backend ALIAS backend)
+target_sources(backend PRIVATE online_backend.cpp)
+target_include_directories(backend PUBLIC ${PROJECT_SOURCE_DIR} PRIVATE ${PCL_INCLUDE_DIRS} ${GTSAM_INCLUDE_DIR})
+target_compile_definitions(backend PRIVATE ${PCL_DEFINITIONS})
+target_link_libraries(backend PUBLIC Eigen3::Eigen PRIVATE ${PCL_LIBRARIES} gtsam Threads::Threads)

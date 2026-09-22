@@ -70,6 +70,14 @@ class SE3LIO:
         """Visual map points used by the last photometric update (0 when the camera is off)."""
         return self._odom.num_tracked()
 
+    def leaf(self):
+        """Downsample grid (m) of the last scan; moves with the inlier count when target_inliers > 0."""
+        return self._odom.leaf()
+
+    def inliers(self):
+        """LiDAR inliers of the last update (the count the adaptive grid reacts to)."""
+        return self._odom.inliers()
+
     def merge_lidars(self, scans):
         """Merge only (no estimation): returns ((N,5) [x y z lidar_idx t_offset] in body frame, stamp)."""
         pts = [np.ascontiguousarray(p, dtype=float) for p, _, _ in scans]

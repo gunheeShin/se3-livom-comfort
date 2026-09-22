@@ -83,6 +83,7 @@ class SE3LIOConfig(BaseModel):
     voxel_map_layer_size: List[int] = Field(default_factory=lambda: [5, 5, 5, 5, 5])
     voxel_map_max_point_size: int = 1000
     voxel_map_plane_thres: float = 0.01
+    voxel_map_plane_thres_start: float = 0.0  # first 5 s (0 = voxel_map_plane_thres)
 
     voxel_map_sliding_en: bool = False
     voxel_map_sliding_thresh: float = 8.0
@@ -177,6 +178,7 @@ def load_node_params(params_path):
         voxel_map_layer_size=[int(x) for x in _get(params, "voxel_map.layer_size", [5, 5, 5, 5, 5])],
         voxel_map_max_point_size=int(_get(params, "voxel_map.max_point_size", 1000)),
         voxel_map_plane_thres=float(_get(params, "voxel_map.plane_threshold", 0.01)),
+        voxel_map_plane_thres_start=float(_get(params, "voxel_map.plane_threshold_start", 0.0)),
         voxel_map_sliding_en=bool(_get(params, "voxel_map.map_sliding_en", False)),
         voxel_map_sliding_thresh=float(_get(params, "voxel_map.sliding_thresh", 8.0)),
         voxel_map_half_size=int(_get(params, "voxel_map.half_map_size", 50)),

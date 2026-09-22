@@ -1,4 +1,4 @@
-// Online HBA backend: global plane BA (hku-mars/HBA a0cdd47 math) re-solved periodically while scans arrive, never
+// Online backend: global plane BA (math from hku-mars/HBA a0cdd47) re-solved periodically while scans arrive, never
 // at the end. Keyframes (25 scans merged) accumulate; every `every` new keyframes the worker solves all of them from
 // the LIO poses (cold start, as the batch does), and the all-pair relative poses enter an incremental PGO (iSAM2)
 // together with per-scan odometry factors and stationary-node gravity factors (accelerometer during 4 s still chunks,
@@ -12,7 +12,7 @@
 #include <vector>
 
 namespace se3_lio {
-namespace hba {
+namespace backend {
 
 struct Params {
     double voxel_size = 1.0;
@@ -25,7 +25,6 @@ struct Params {
     int every = 4;                 // new top keyframes per round
     std::vector<double> hess_const = {1969, 1713, 2248, 4.17, 6.67, 10.1};  // scan-pair PGO weight (window BA Hessian median)
     double gravity_sigma_deg = 0.02;  // stationary-chunk attitude factor: sigma of one 4 s chunk (per node x sqrt(n)); 0 = off
-    std::string gravity_file;      // instead: "nx ny nz" then "node bx by bz sigma" lines (comfort_ws gravity_factors.py, validation)
     std::string dump_dir;          // if set, every round's BA poses go to <dump_dir>/round_<kfs>.txt (regression checks)
 };
 
@@ -45,10 +44,10 @@ struct RoundStat {
     double rss_mb;   // resident memory of the process right after the BA
 };
 
-class OnlineHBA {
+class OnlineBackend {
 public:
-    explicit OnlineHBA(const Params &params);
-    ~OnlineHBA();
+    explicit OnlineBackend(const Params &params);
+    ~OnlineBackend();
     // Deskewed body-frame scan (float32 xyz, n rows) with its LIO pose (quaternion xyzw), stamp, the mean accelerometer
     // reading of its IMU rows (body frame, NaN = none) and the LIO's accelerometer bias and world gravity (down).
     void push(const Eigen::Vector4d &q_xyzw, const Eigen::Vector3d &p, const float *xyz, int n, double stamp,
@@ -64,5 +63,5 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
-}  // namespace hba
+}  // namespace backend
 }  // namespace se3_lio

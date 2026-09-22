@@ -44,6 +44,7 @@ public:
     ManageMap() : config_() { is_initialized_ = false; }
 
     ~ManageMap(){};
+    void setPlaneThres(float _thres) { config_.plane_thres = _thres; }
 
     /**
      * @brief Set the State object

@@ -8,7 +8,7 @@
 
 #include "common/data_type.h"
 #include "common/utils.h"
-#include "hba/online_hba.h"
+#include "backend/online_backend.h"
 #include "pipeline/SE3_LIO.h"
 
 namespace py = pybind11;
@@ -204,28 +204,30 @@ private:
 
 public:
     int NumTracked() const { return pipeline_.numTrackedPoints(); }
+    double Leaf() const { return pipeline_.currentLeaf(); }
+    int Inliers() const { return pipeline_.lastInliers(); }
 
 private:
     se3_lio::pipeline::SE3_LIO pipeline_;
     Eigen::Matrix4d extrinsic_;
 };
 
-class OnlineHBAWrapper {
+class OnlineBackendWrapper {
 public:
-    explicit OnlineHBAWrapper(const se3_lio::hba::Params &params) : hba_(params) {}
+    explicit OnlineBackendWrapper(const se3_lio::backend::Params &params) : backend_(params) {}
 
     void Push(const Eigen::Vector4d &q_xyzw, const Eigen::Vector3d &p,
               const py::array_t<float, py::array::c_style | py::array::forcecast> &xyz, double stamp, const Eigen::Vector3d &acc,
               const Eigen::Vector3d &ba, const Eigen::Vector3d &grav) {
         if (xyz.ndim() != 2 || xyz.shape(1) != 3) throw std::invalid_argument("xyz must have shape (N, 3)");
-        hba_.push(q_xyzw, p, xyz.data(), static_cast<int>(xyz.shape(0)), stamp, acc, ba, grav);
+        backend_.push(q_xyzw, p, xyz.data(), static_cast<int>(xyz.shape(0)), stamp, acc, ba, grav);
     }
 
     py::array_t<double> Finish() {
-        std::vector<se3_lio::hba::Pose> poses;
+        std::vector<se3_lio::backend::Pose> poses;
         {
             py::gil_scoped_release release;
-            poses = hba_.finish();
+            poses = backend_.finish();
         }
         py::array_t<double> out({static_cast<py::ssize_t>(poses.size()), py::ssize_t(4), py::ssize_t(4)});
         auto o = out.mutable_unchecked<3>();
@@ -241,14 +243,14 @@ public:
 
     std::vector<std::tuple<int, int, int, int, double, double, int, double>> Stats() const {
         std::vector<std::tuple<int, int, int, int, double, double, int, double>> out;
-        for (const auto &s : hba_.stats()) out.emplace_back(s.round, s.start_scan, s.kfs, s.iters, s.ba_ms, s.pgo_ms, s.done_scan, s.rss_mb);
+        for (const auto &s : backend_.stats()) out.emplace_back(s.round, s.start_scan, s.kfs, s.iters, s.ba_ms, s.pgo_ms, s.done_scan, s.rss_mb);
         return out;
     }
 
-    double PendingMs() const { return hba_.pending_ms(); }
+    double PendingMs() const { return backend_.pending_ms(); }
 
 private:
-    se3_lio::hba::OnlineHBA hba_;
+    se3_lio::backend::OnlineBackend backend_;
 };
 
 }  // namespace
@@ -312,6 +314,7 @@ PYBIND11_MODULE(se3_lio_pybind, m) {
         .def_readwrite("voxel_map_layer_size", &Config::voxel_map_layer_size)
         .def_readwrite("voxel_map_max_point_size", &Config::voxel_map_max_point_size)
         .def_readwrite("voxel_map_plane_thres", &Config::voxel_map_plane_thres)
+        .def_readwrite("voxel_map_plane_thres_start", &Config::voxel_map_plane_thres_start)
         .def_readwrite("voxel_map_sliding_en", &Config::voxel_map_sliding_en)
         .def_readwrite("voxel_map_sliding_thresh", &Config::voxel_map_sliding_thresh)
         .def_readwrite("voxel_map_half_size", &Config::voxel_map_half_size)
@@ -346,28 +349,29 @@ PYBIND11_MODULE(se3_lio_pybind, m) {
              "stamps"_a, "imu"_a, "end_time"_a = 0.0, "grays"_a = std::vector<Gray>())
         .def("_merge_lidars", &SE3LIOWrapper::MergeLidars, "points_list"_a, "times_list"_a,
              "stamps"_a)
-        .def("num_tracked", &SE3LIOWrapper::NumTracked);
+        .def("num_tracked", &SE3LIOWrapper::NumTracked)
+        .def("leaf", &SE3LIOWrapper::Leaf)
+        .def("inliers", &SE3LIOWrapper::Inliers);
 
-    using HBAParams = se3_lio::hba::Params;
-    py::class_<HBAParams>(m, "_HBAParams")
+    using BackendParams = se3_lio::backend::Params;
+    py::class_<BackendParams>(m, "_BackendParams")
         .def(py::init<>())
-        .def_readwrite("voxel_size", &HBAParams::voxel_size)
-        .def_readwrite("downsample_size", &HBAParams::downsample_size)
-        .def_readwrite("eigen_ratio", &HBAParams::eigen_ratio)
-        .def_readwrite("reject_ratio", &HBAParams::reject_ratio)
-        .def_readwrite("max_iter", &HBAParams::max_iter)
-        .def_readwrite("layers", &HBAParams::layers)
-        .def_readwrite("threads", &HBAParams::threads)
-        .def_readwrite("every", &HBAParams::every)
-        .def_readwrite("hess_const", &HBAParams::hess_const)
-        .def_readwrite("gravity_sigma_deg", &HBAParams::gravity_sigma_deg)
-        .def_readwrite("gravity_file", &HBAParams::gravity_file)
-        .def_readwrite("dump_dir", &HBAParams::dump_dir);
+        .def_readwrite("voxel_size", &BackendParams::voxel_size)
+        .def_readwrite("downsample_size", &BackendParams::downsample_size)
+        .def_readwrite("eigen_ratio", &BackendParams::eigen_ratio)
+        .def_readwrite("reject_ratio", &BackendParams::reject_ratio)
+        .def_readwrite("max_iter", &BackendParams::max_iter)
+        .def_readwrite("layers", &BackendParams::layers)
+        .def_readwrite("threads", &BackendParams::threads)
+        .def_readwrite("every", &BackendParams::every)
+        .def_readwrite("hess_const", &BackendParams::hess_const)
+        .def_readwrite("gravity_sigma_deg", &BackendParams::gravity_sigma_deg)
+        .def_readwrite("dump_dir", &BackendParams::dump_dir);
 
-    py::class_<OnlineHBAWrapper>(m, "_OnlineHBA")
-        .def(py::init<const HBAParams &>(), "params"_a)
-        .def("push", &OnlineHBAWrapper::Push, "q_xyzw"_a, "p"_a, "xyz"_a, "stamp"_a, "acc"_a, "ba"_a, "grav"_a)
-        .def("finish", &OnlineHBAWrapper::Finish)
-        .def("stats", &OnlineHBAWrapper::Stats)
-        .def("pending_ms", &OnlineHBAWrapper::PendingMs);
+    py::class_<OnlineBackendWrapper>(m, "_OnlineBackend")
+        .def(py::init<const BackendParams &>(), "params"_a)
+        .def("push", &OnlineBackendWrapper::Push, "q_xyzw"_a, "p"_a, "xyz"_a, "stamp"_a, "acc"_a, "ba"_a, "grav"_a)
+        .def("finish", &OnlineBackendWrapper::Finish)
+        .def("stats", &OnlineBackendWrapper::Stats)
+        .def("pending_ms", &OnlineBackendWrapper::PendingMs);
 }

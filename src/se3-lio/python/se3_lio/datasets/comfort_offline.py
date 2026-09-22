@@ -16,11 +16,23 @@ Merged scans (tools/merge_livox.py) tag Livox points with ring 200 -> lidar_idx 
 
 import glob
 import os
+from dataclasses import dataclass
 
 import numpy as np
 
-from se3_lio.datasets.rosbag import Frame
 from se3_lio.online_sync import OnlineSynchronizer
+
+
+@dataclass
+class Frame:
+    points: np.ndarray  # (N, 3) xyz in the LiDAR frame
+    point_times: np.ndarray  # (N,) per-point time offset from frame start [s]
+    imu: np.ndarray  # (M, 7) rows of [t, ax, ay, az, gx, gy, gz]
+    stamp: float  # absolute scan start time [s]
+    lidar_idx: np.ndarray = None  # (N,) per-point LiDAR index for merged scans (None -> 0)
+    end_time: float = None  # absolute epoch end the state is propagated to (None -> last point)
+    grays: list = None  # per-camera (H, W) uint8 undistorted images at end_time (None -> LIO only)
+
 
 LIVOX_RING = 200
 

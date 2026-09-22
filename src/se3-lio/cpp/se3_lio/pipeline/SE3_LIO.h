@@ -62,6 +62,7 @@ struct SE3_LIO_Config {
     std::vector<int> voxel_map_layer_size = {5, 5, 5, 5, 5};
     int voxel_map_max_point_size = 1000;
     float voxel_map_plane_thres = 0.01;
+    float voxel_map_plane_thres_start = 0.0f;   // plane threshold of the first 5 s (0 = voxel_map_plane_thres); 3e-4 on the empty first map broke the first 10 s of ARC-5
 
     bool voxel_map_sliding_en = false;
     double voxel_map_sliding_thresh = 8.0;
@@ -101,6 +102,8 @@ public:
     State getState() const { return state_; }
 
     size_t getMapSize() const { return map_manager_ ? map_manager_->mapSize() : 0; }
+    double currentLeaf() const { return leaf_; }  // downsample grid of the last scan (adaptive)
+    int lastInliers() const { return lidar_inliers_; }  // LiDAR inliers of the last update (what adaptiveLeaf reads)
     int numTrackedPoints() const {
         int n = 0;
         for (const auto &vu : visual_updaters_) n += vu->numTracked();

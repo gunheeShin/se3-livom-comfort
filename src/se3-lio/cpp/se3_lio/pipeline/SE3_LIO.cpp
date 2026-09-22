@@ -139,6 +139,10 @@ void SE3_LIO::estimatePose(MeasurementPtr &_measurement_ptr, const std::vector<c
 
     _measurement_ptr->raw_lidar = _measurement_ptr->lidar;
     const double leaf = adaptiveLeaf(state_.stamp);
+    if (config_.voxel_map_plane_thres_start > 0.0f) {
+        if (first_stamp_ < 0) first_stamp_ = state_.stamp;
+        map_manager_->setPlaneThres(state_.stamp - first_stamp_ < 5.0 ? config_.voxel_map_plane_thres_start : config_.voxel_map_plane_thres);
+    }
     downsampleCloud(_measurement_ptr->lidar, leaf, config_.downsample_centroid);
 
     state_predictor_.calculateUndistCloudCov(_measurement_ptr->lidar);

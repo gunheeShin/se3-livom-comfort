@@ -1,4 +1,4 @@
-// Copied from hku-mars/HBA (a0cdd47, GPL-2.0), ROS headers and ros::Time removed; thd_num is set by OnlineHBA.
+// Copied from hku-mars/HBA (a0cdd47, GPL-2.0), ROS headers and ros::Time removed; thd_num is set by OnlineBackend.
 #ifndef BA_HPP
 #define BA_HPP
 
@@ -29,6 +29,8 @@ inline double now_sec()
 int layer_limit = 2;
 int MIN_PT = 15;
 int thd_num = 16;
+double prof_hess_s = 0, prof_solve_s = 0;  // damping_iter Hessian / solve wall-clock, summed until OnlineBackend resets them
+int prof_lm = 0;
 
 // Frames present in a plane voxel (ascending) and their factors, one entry per present frame (sparse: a voxel
 // sees a few of the window's frames, so the dense win_size arrays of the original HBA are not kept).
@@ -778,6 +780,7 @@ public:
       if(fabs(residual1-residual2)<1e-9) break;
       #endif
     }
+    prof_hess_s += hesstime; prof_solve_s += solvtime; prof_lm += loop_num;
   }
 
   size_t check_mem()

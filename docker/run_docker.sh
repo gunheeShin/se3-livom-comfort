@@ -1,12 +1,12 @@
 #!/bin/bash
-# 호스트에서: bash docker/run_docker.sh [cmd...]   (cmd 없으면 bash 셸)
-# IMAGE=comfort:hba 처럼 환경변수로 다른 이미지를 고른다(기본 comfort:ros1).
-# comfort_ws → /ws, GrandTour SSD는 호스트와 같은 경로로 마운트. 빌드는 컨테이너 안에서 catkin build.
+# On the host: bash docker/run_docker.sh [cmd...]   (no cmd: a bash shell)
+# IMAGE=comfort:dev selects another image (default comfort:ros1).
+# The repo is mounted at /ws, the GrandTour data folder at the same path as on the host.
 WS="$(realpath "$(dirname "$0")/..")"
 DATA=/media/gunhee/gun_T7_17/Research/LIO/PublichDataset/grandtour
 MOUNTS=(-v "$WS":/ws)
 [ -d "$DATA" ] && MOUNTS+=(-v "$DATA":"$DATA")
-RES="$(realpath "$WS/results")"   # results 는 외장 SSD 로 가는 링크 — 컨테이너에서도 풀리게 실경로를 같은 경로로 마운트
+RES="$(realpath "$WS/results")"   # results is a link to an external SSD; mount the real path at the same path so it resolves inside the container
 [ "$RES" != "$WS/results" ] && MOUNTS+=(-v "$RES":"$RES")
 TTY=(); [ -t 0 ] && TTY=(-it)
 

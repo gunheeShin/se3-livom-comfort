@@ -33,21 +33,9 @@ dependencies = [
 Homepage = "https://se3-lio.github.io"
 Repository = "https://github.com/url-kaist/se3-lio"
 
-[project.scripts]
-se3_lio_pipeline = "se3_lio.tools.cmd:run"
-
 [project.optional-dependencies]
 test = [
     "pytest",
-]
-viz = [
-    "polyscope",
-]
-rerun = [
-    # Pinned to the .rrd format read by the local viewer. Keep this in lockstep
-    # with the viewer version (e.g. a conda env: rerun-sdk==0.33.1). 0.27+ is
-    # needed for camera-follow (Spatial3DView eye_controls.tracking_entity).
-    "rerun-sdk==0.33.1",
 ]
 
 [tool.scikit-build]
@@ -65,18 +53,6 @@ sdist.exclude = [
     "__pycache__",
     "*.egg-info",
 ]
-
-# Linux-first: the core needs OpenMP (libgomp), which auditwheel bundles into
-# the manylinux wheel automatically. Eigen/Sophus are fetched via FetchContent
-# and compiled in, so there are no system shared-lib deps to vendor.
-# macOS/Windows need OpenMP set up separately (libomp / MSVC /openmp) — add
-# their archs/os to this config and the workflow matrix once handled.
-[tool.cibuildwheel]
-build = "cp38-* cp39-* cp310-* cp311-* cp312-*"
-skip = ["*-musllinux*", "pp*"]
-archs = ["auto64"]
-build-frontend = "build"
-test-command = "python -c \"import se3_lio\""
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,4 +1,4 @@
-#include "hba/online_hba.h"
+#include "backend/online_backend.h"
 
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/navigation/AttitudeFactor.h>
@@ -8,6 +8,7 @@
 #include <gtsam/slam/BetweenFactor.h>
 #include <gtsam/slam/PriorFactor.h>
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <deque>
@@ -15,16 +16,18 @@
 #include <mutex>
 #include <thread>
 #include <cmath>
+#include <cstdio>
+#include <malloc.h>
 #include <unistd.h>
 #include <tuple>
 #include <unordered_map>
 
 // ba.hpp / tools.hpp define globals (thd_num, layer_limit, ...): include them from this TU only.
-#include "hba/ba.hpp"
-#include "hba/mypcl.hpp"
+#include "backend/ba.hpp"
+#include "backend/mypcl.hpp"
 
 namespace se3_lio {
-namespace hba {
+namespace backend {
 namespace {
 
 using Cloud = pcl::PointCloud<PointType>;
@@ -103,6 +106,14 @@ void recut_parallel(unordered_map<VOXEL_LOC, OCTO_TREE_ROOT *> &feat_map, int th
     for (auto &th : pool) th.join();
 }
 
+double rss_mb();
+
+// Where a round's BA time goes (per stage, s) and the plane-voxel count, for the BAPROF line of round()
+struct Prof {
+    double cut, recut, tras, outl, damp, rss_cut_mb;
+    size_t voxels;
+} prof;
+
 // hba.cpp global_ba over the top-layer keyframes (poses in place, already downsampled clouds), all-pair Hessians out
 void global_ba(const Params &prm, vector<mypcl::pose> &poses, const vector<Cloud::Ptr> &pcds, PLV(6) & hess_out, int &iters) {
     int n = poses.size();
@@ -115,21 +126,32 @@ void global_ba(const Params &prm, vector<mypcl::pose> &poses, const vector<Cloud
     size_t mem_cost = 0;
     iters = 0;
     hess_out.clear();
+    prof = {};
+    prof_hess_s = prof_solve_s = 0;
+    prof_lm = 0;
     for (int loop = 0; loop < prm.max_iter; loop++) {
         iters++;
         unordered_map<VOXEL_LOC, OCTO_TREE_ROOT *> surf_map;
+        double t = now_sec();
         cut_voxel_parallel(surf_map, pcds, x_buf, prm.voxel_size, n, prm.eigen_ratio * 2, prm.threads);
+        prof.cut += now_sec() - t, t = now_sec();
         recut_parallel(surf_map, prm.threads);
+        prof.recut += now_sec() - t, t = now_sec();
+        prof.rss_cut_mb = std::max(prof.rss_cut_mb, rss_mb());
         VOX_HESS voxhess(n);
         for (auto &it : surf_map) it.second->tras_opt(voxhess);
+        prof.tras += now_sec() - t, t = now_sec();
+        prof.voxels += voxhess.plvec_voxels.size();
         if (voxhess.plvec_voxels.empty()) {
             for (auto &it : surf_map) delete it.second;
             break;
         }
         VOX_OPTIMIZER opt_lsv(n);
         opt_lsv.remove_outlier(x_buf, voxhess, prm.reject_ratio);
+        prof.outl += now_sec() - t, t = now_sec();
         PLV(6) hess_vec;
         opt_lsv.damping_iter(x_buf, voxhess, residual_cur, hess_vec, mem_cost);
+        prof.damp += now_sec() - t;
         for (auto &it : surf_map) delete it.second;
         if (loop > 0 && fabs(residual_pre - residual_cur) / fabs(residual_cur) < 0.05 || loop == prm.max_iter - 1) {
             hess_out = hess_vec;
@@ -184,7 +206,7 @@ Cloud::Ptr merge_window(const vector<mypcl::pose> &poses, const vector<Cloud::Pt
 
 }  // namespace
 
-struct OnlineHBA::Impl {
+struct OnlineBackend::Impl {
     Params prm;
     int stride = 1;  // scans per top keyframe
 
@@ -203,7 +225,7 @@ struct OnlineHBA::Impl {
     bool run_open = false;
     double next_a = 0;      // start of the next chunk inside the open run
 
-    // gravity factors by scan node (from the file)
+    // gravity factors by scan node
     struct GravMeas {
         Eigen::Vector3d b_ref;  // up in the body frame
         double sigma;
@@ -225,7 +247,6 @@ struct OnlineHBA::Impl {
     std::mutex mu;
     std::condition_variable cv;
     std::deque<std::tuple<mypcl::pose, Cloud::Ptr, Imu>> pending;
-    bool file_grav = false;
     bool stop = false;
     double stop_time = 0;
     std::atomic<int> pushed{0};
@@ -352,7 +373,7 @@ struct OnlineHBA::Impl {
         vector<mypcl::pose> x(top.begin(), top.begin() + n);
         PLV(6) hess;
         int iters;
-        double t0 = now_sec();
+        double rss_pre = rss_mb(), t0 = now_sec();
         global_ba(prm, x, pcds.back(), hess, iters);
         double ba_ms = (now_sec() - t0) * 1e3, rss = rss_mb();
         solved = n;
@@ -383,6 +404,12 @@ struct OnlineHBA::Impl {
         isam.update(gtsam::NonlinearFactorGraph(), gtsam::Values(), top_idx);
         top_idx = isam.update(g).newFactorsIndices;
         stats.push_back({(int)stats.size() + 1, start, n, iters, ba_ms, (now_sec() - t1) * 1e3, pushed.load(), rss});
+        double rss_pgo = rss_mb();
+        malloc_trim(0);  // the round's octrees and dense Hessians are freed but glibc keeps them in the arenas otherwise
+        fprintf(stderr, "BAPROF round %d kfs %d iters %d lm %d voxels %zu cut %.2f recut %.2f tras %.2f outl %.2f damp %.2f hess %.2f solve %.2f pgo %.2f"
+                        " rss_pre %.0f rss_cut %.0f rss_ba %.0f rss_pgo %.0f rss_trim %.0f\n",
+                (int)stats.size(), n, iters, prof_lm, prof.voxels, prof.cut, prof.recut, prof.tras, prof.outl, prof.damp, prof_hess_s, prof_solve_s,
+                stats.back().pgo_ms / 1e3, rss_pre, prof.rss_cut_mb, rss, rss_pgo, rss_mb());
     }
 
     void run() {
@@ -402,32 +429,22 @@ struct OnlineHBA::Impl {
                 imu.push_back(std::get<2>(e));
             }
             advance();
-            if (prm.gravity_sigma_deg > 0 && !file_grav) detect_still();
+            if (prm.gravity_sigma_deg > 0) detect_still();
             if (!stopping && (int)kposes.back().size() >= solved + prm.every) round();
         }
     }
 };
 
-OnlineHBA::OnlineHBA(const Params &params) : impl_(new Impl) {
+OnlineBackend::OnlineBackend(const Params &params) : impl_(new Impl) {
     Impl &im = *impl_;
     im.prm = params;
-    if (params.layers < 2) throw std::invalid_argument("OnlineHBA: layers must be >= 2");
-    if (params.hess_const.size() != 6) throw std::invalid_argument("OnlineHBA: hess_const needs 6 values");
+    if (params.layers < 2) throw std::invalid_argument("OnlineBackend: layers must be >= 2");
+    if (params.hess_const.size() != 6) throw std::invalid_argument("OnlineBackend: hess_const needs 6 values");
     for (int l = 1; l < params.layers; l++) im.stride *= GAP;
     im.pcds.resize(params.layers);
     im.kposes.resize(params.layers);
     im.next_win.assign(params.layers, 0);
     im.freed.assign(params.layers, 0);
-    if (!params.gravity_file.empty()) {
-        std::ifstream gf(params.gravity_file);
-        double nx, ny, nz;
-        if (!(gf >> nx >> ny >> nz)) throw std::invalid_argument("OnlineHBA: cannot read " + params.gravity_file);
-        im.file_grav = true;
-        Eigen::Vector3d up_w(nx, ny, nz);
-        int node;
-        double bx, by, bz, sig;
-        while (gf >> node >> bx >> by >> bz >> sig) im.grav[node] = {Eigen::Vector3d(bx, by, bz), sig, up_w};
-    }
     gtsam::ISAM2Params ip;
     ip.relinearizeThreshold = 0.01;
     ip.relinearizeSkip = 1;
@@ -436,7 +453,7 @@ OnlineHBA::OnlineHBA(const Params &params) : impl_(new Impl) {
     im.worker = std::thread(&Impl::run, impl_.get());
 }
 
-OnlineHBA::~OnlineHBA() {
+OnlineBackend::~OnlineBackend() {
     if (impl_->worker.joinable()) {
         {
             std::lock_guard<std::mutex> lk(impl_->mu);
@@ -448,7 +465,7 @@ OnlineHBA::~OnlineHBA() {
     }
 }
 
-void OnlineHBA::push(const Eigen::Vector4d &q_xyzw, const Eigen::Vector3d &p, const float *xyz, int n, double stamp,
+void OnlineBackend::push(const Eigen::Vector4d &q_xyzw, const Eigen::Vector3d &p, const float *xyz, int n, double stamp,
                      const Eigen::Vector3d &acc, const Eigen::Vector3d &ba, const Eigen::Vector3d &grav) {
     Cloud::Ptr pc(new Cloud);
     pc->points.resize(n);
@@ -465,7 +482,7 @@ void OnlineHBA::push(const Eigen::Vector4d &q_xyzw, const Eigen::Vector3d &p, co
     impl_->cv.notify_one();
 }
 
-std::vector<Pose> OnlineHBA::finish() {
+std::vector<Pose> OnlineBackend::finish() {
     Impl &im = *impl_;
     {
         std::lock_guard<std::mutex> lk(im.mu);
@@ -495,8 +512,8 @@ std::vector<Pose> OnlineHBA::finish() {
     return out;
 }
 
-const std::vector<RoundStat> &OnlineHBA::stats() const { return impl_->stats; }
-double OnlineHBA::pending_ms() const { return impl_->pending_ms; }
+const std::vector<RoundStat> &OnlineBackend::stats() const { return impl_->stats; }
+double OnlineBackend::pending_ms() const { return impl_->pending_ms; }
 
-}  // namespace hba
+}  // namespace backend
 }  // namespace se3_lio

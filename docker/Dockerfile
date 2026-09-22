@@ -8,26 +8,20 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential git cmake ninja-build \
-    python3-pip python3-dev python3-catkin-tools \
+    python3-pip python3-dev \
     libeigen3-dev libboost-all-dev libomp-dev \
-    ros-noetic-rviz ros-noetic-eigen-conversions ros-noetic-tf ros-noetic-tf2-ros \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 SHELL ["/bin/bash", "-c"]
 
-# GTSAM 4.1 (HBA 백엔드의 PGO)
+# GTSAM 4.1 (pose graph of the online backend)
 RUN apt-get update && apt-get install -y --no-install-recommends software-properties-common \
     && add-apt-repository -y ppa:borglab/gtsam-release-4.1 \
     && apt-get update && apt-get install -y --no-install-recommends libgtsam-dev libgtsam-unstable-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Livox-SDK2 (livox_ros_driver2 링크 대상)
-RUN git clone --depth 1 https://github.com/Livox-SDK/Livox-SDK2.git /tmp/Livox-SDK2 \
-    && cd /tmp/Livox-SDK2 && mkdir build && cd build && cmake .. && make -j$(($(nproc)-1)) && make install \
-    && rm -rf /tmp/Livox-SDK2
-
-# Sophus non-templated(a621ff2), FAST-LIVO2 요구 버전. so2.cpp는 최신 Eigen에서 lvalue 오류가 나서 패치.
-# 이 버전은 make install이 헤더·SophusConfig.cmake를 설치하지 않으므로 소스·빌드 디렉터리를 /opt에 남기고 config만 등록.
+# Sophus non-templated (a621ff2), the version FAST-LIVO2 requires. so2.cpp fails with an lvalue error on recent Eigen, so it is patched.
+# This version's make install does not install headers or SophusConfig.cmake, so source and build dirs stay under /opt and only the config is registered.
 RUN git clone https://github.com/strasdat/Sophus.git /opt/Sophus \
     && cd /opt/Sophus && git checkout a621ff2e56c56c839a6c40418d42c3c254424b5c \
     && sed -i 's/unit_complex_.real() = 1.;/unit_complex_.real(1.);/; s/unit_complex_.imag() = 0.;/unit_complex_.imag(0.);/' sophus/so2.cpp \
@@ -35,12 +29,11 @@ RUN git clone https://github.com/strasdat/Sophus.git /opt/Sophus \
     && mkdir -p /usr/local/lib/cmake/Sophus && cp SophusConfig.cmake /usr/local/lib/cmake/Sophus/ \
     && ldconfig
 
-# se3-lio python 바인딩 소스 빌드용 + rosbag 처리
+# se3-lio Python binding source build + rosbag handling
 RUN pip3 install --no-cache-dir "pip>=21.3,<25" \
     && pip3 install --no-cache-dir scikit-build-core pybind11 ninja "cmake<4" \
        numpy "pydantic>=2" pyyaml tqdm "rosbags>=0.9" evo
 
-RUN echo "source /opt/ros/noetic/setup.bash" >> ~/.bashrc \
-    && echo "[ -f /ws/devel/setup.bash ] && source /ws/devel/setup.bash" >> ~/.bashrc
+RUN echo "source /opt/ros/noetic/setup.bash" >> ~/.bashrc
 
 WORKDIR /ws

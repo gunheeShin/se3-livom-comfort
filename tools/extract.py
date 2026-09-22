@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""GrandTour 미션 bag → FAST-LIVO2 오프라인 입력.
+"""GrandTour mission bag -> FAST-LIVO2 offline input.
 
-사용(컨테이너): python3 tools/extract.py <mission_dir> [--out DIR] [--cam front_center|none]
-출력 <mission_dir>/comfort_offline/
+Usage (container): python3 tools/extract.py <mission_dir> [--out DIR] [--cam front_center|none]
+Output <mission_dir>/comfort_offline/
   imu.txt          t_ns wx wy wz ax ay az            (/boxi/stim320/imu)
-  lidar/<t_ns>.bin XT32 26B: x y z f32, intensity f32, ring u16, timestamp f64(절대초)
-  cam/<t_ns>.jpg|png  압축 바이트 원본                (/boxi/alphasense/<cam>/image_raw/compressed)
-  gt.tum           t x y z 0 0 0 1                    (ap20 prism, 위치만)
+  lidar/<t_ns>.bin XT32 26B: x y z f32, intensity f32, ring u16, timestamp f64 (absolute seconds)
+  cam/<t_ns>.jpg|png  compressed bytes as is              (/boxi/alphasense/<cam>/image_raw/compressed)
+  gt.tum           t x y z 0 0 0 1                    (ap20 prism, position only)
   calib.json       T_imu_lidar, T_cam_lidar, T_imu_prism (4x4), cam {frame,model,width,height,K,D}
-  manifest.json    메시지 수·시간 범위
-  --livox-only     livox/<t_ns>.bin (같은 XT32 레이아웃, Livox 프레임 원본, ring=200) + calib.json 에 T_lidar_livox(tf_static) 추가.
-                   기존 추출물은 건드리지 않는다. se3-lio 코어 내부 병합(run_se3lio.sh --lidar multi) 입력.
-  --cams-only A,B  cam_<name>/ 를 카메라별로 추가 추출하고 calib.json 에 cams[name] = {frame,model,width,height,K,D,T_cam_lidar}.
-                   front_center 는 기존 cam/ 을 그대로 쓰고 calib 항목만 채운다(3카메라 livo, run_se3lio.sh --cams).
+  manifest.json    message counts and time range
+  --livox-only     livox/<t_ns>.bin (same XT32 layout, raw Livox frame, ring=200) + T_lidar_livox (tf_static) added to calib.json.
+                   Existing extracts are left untouched. Input for core merging in se3-lio (run_se3lio.sh --lidar multi).
+  --cams-only A,B  extract cam_<name>/ per camera in addition and add calib.json cams[name] = {frame,model,width,height,K,D,T_cam_lidar}.
+                   front_center keeps the existing cam/ and only fills the calib entry (3-camera livo, run_se3lio.sh --cams).
 """
 import argparse, glob, json, os, sys
 import numpy as np
@@ -47,7 +47,7 @@ def stamp_ns(h):
 def bag(mdir, suffix):
     m = glob.glob(os.path.join(mdir, f'*_{suffix}.bag'))
     if not m:
-        sys.exit(f'{suffix}.bag 없음: {mdir}')
+        sys.exit(f'{suffix}.bag missing: {mdir}')
     return m[0]
 
 
@@ -70,7 +70,7 @@ def tf_tree(mdir):
 
 
 def chain(edges, src, dst):
-    """T_src_dst: dst 프레임 좌표 → src 프레임 좌표 (BFS, 양방향)."""
+    """T_src_dst: dst-frame coordinates -> src-frame coordinates (BFS, both directions)."""
     adj = {}
     for (a, b), T in edges.items():
         adj.setdefault(a, []).append((b, T))
@@ -84,7 +84,7 @@ def chain(edges, src, dst):
             if b not in seen:
                 seen[b] = seen[a] @ T
                 q.append(b)
-    sys.exit(f'tf 경로 없음: {src} -> {dst}')
+    sys.exit(f'no tf path: {src} -> {dst}')
 
 
 def extract_imu(mdir, out):
@@ -109,7 +109,7 @@ def extract_lidar(mdir, out):
         for k in XT32.names:
             o[k] = pts[k]
         t = stamp_ns(m.header)
-        assert t > last, f'lidar stamp 역행 {last} -> {t}'
+        assert t > last, f'lidar stamp goes backwards {last} -> {t}'
         last = t
         unsorted += int(np.any(np.diff(o['timestamp']) < 0))
         o.tofile(os.path.join(d, f'{t}.bin'))
@@ -133,7 +133,7 @@ def extract_livox(mdir, out):
         o['timestamp'] = pts['timestamp'].astype(np.float64) * 1e-9
         o = o[np.argsort(o['timestamp'], kind='stable')]
         t = stamp_ns(m.header)
-        assert t > last, f'livox stamp 역행 {last} -> {t}'
+        assert t > last, f'livox stamp goes backwards {last} -> {t}'
         last = t
         o.tofile(os.path.join(d, f'{t}.bin'))
         n += 1
@@ -157,7 +157,7 @@ def extract_cam(mdir, out, cam, subdir='cam'):
             f.write(m.data.tobytes())
         n += 1
     if n and info is None:
-        sys.exit(f'{info_topic} 없음')
+        sys.exit(f'{info_topic} missing')
     return n, info
 
 
@@ -177,9 +177,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('mission_dir')
     ap.add_argument('--out')
-    ap.add_argument('--cam', default='front_center', help='alphasense 카메라 이름, none이면 생략')
-    ap.add_argument('--livox-only', action='store_true', help='livox/ 만 추가 추출 (기존 추출물 유지)')
-    ap.add_argument('--cams-only', metavar='A,B', help='카메라별 cam_<name>/ 추가 추출 + calib cams[name] (기존 추출물 유지)')
+    ap.add_argument('--cam', default='front_center', help='alphasense camera name, none to skip')
+    ap.add_argument('--livox-only', action='store_true', help='extract only livox/ in addition (existing extract kept)')
+    ap.add_argument('--cams-only', metavar='A,B', help='extract cam_<name>/ per camera in addition + calib cams[name] (existing extract kept)')
     a = ap.parse_args()
     mdir = a.mission_dir.rstrip('/')
     out = a.out or os.path.join(mdir, 'comfort_offline')
@@ -202,7 +202,7 @@ def main():
         for cam in a.cams_only.split(','):
             sub = 'cam' if cam == 'front_center' else f'cam_{cam}'
             if cam == 'front_center' and calib.get('cam'):
-                info, n = dict(calib['cam']), man.get('cam') or len(os.listdir(os.path.join(out, 'cam')))   # 옛 추출본은 manifest 에 cam 수가 없다
+                info, n = dict(calib['cam']), man.get('cam') or len(os.listdir(os.path.join(out, 'cam')))   # old extracts have no cam count in the manifest
             else:
                 n, info = extract_cam(mdir, out, cam, sub)
                 man[sub] = n
@@ -215,13 +215,13 @@ def main():
         return
     calib = {'T_imu_lidar': chain(edges, IMU_FRAME, LIDAR_FRAME).tolist(),
              'T_imu_prism': chain(edges, IMU_FRAME, PRISM_FRAME).tolist(), 'cam': None}
-    if os.path.isdir(os.path.join(out, 'livox')):   # 재추출이 --livox-only 가 넣은 항목을 지우지 않게
+    if os.path.isdir(os.path.join(out, 'livox')):   # a re-extract must not drop what --livox-only added
         calib['T_lidar_livox'] = chain(edges, LIDAR_FRAME, 'livox_lidar').tolist()
     man = {'mission': os.path.basename(mdir), 'imu': extract_imu(mdir, out)}
     print('imu', man['imu'], flush=True)
     man['lidar'], man['lidar_unsorted_scans'] = extract_lidar(mdir, out)
     print('lidar', man['lidar'], 'unsorted', man['lidar_unsorted_scans'], flush=True)
-    man['gt'] = extract_gt(mdir, out) if glob.glob(os.path.join(mdir, '*_ap20_prism_position.bag')) else 0   # Test 미션은 GT 없음
+    man['gt'] = extract_gt(mdir, out) if glob.glob(os.path.join(mdir, '*_ap20_prism_position.bag')) else 0   # Test missions have no GT
     print('gt', man['gt'], flush=True)
     if a.cam != 'none':
         man['cam'], info = extract_cam(mdir, out, a.cam)

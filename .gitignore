@@ -1,13 +1,8 @@
 build/
-devel/
 logs/
-.catkin_tools/
 results/
-runs/
 submissions/
 __pycache__/
 *.pyc
 .build.lock
 _keys.json
-.musinsa_session.json
-factsheet.json

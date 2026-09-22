@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Codabench 채점과 같은 규칙의 ATE 평가. 계산은 evo가 한다.
+"""ATE evaluation with the same rules as the Codabench scorer. evo does the computation.
 
-  짝짓기  evo sync.associate_trajectories(t_max)
-  t_max   min(GT 간격, 제출 간격)/2 + 5 ms, 상한 50 ms   ← 채점 로그 실측
+  pairing  evo sync.associate_trajectories(t_max)
+  t_max    min(GT interval, submission interval)/2 + 5 ms, capped at 50 ms   <- measured from the scorer log
   ATE     evo main_ape.ape(point_distance, align, n_to_align=-1, correct_scale=False)
-          인자는 주최 grand_tour_box/.../grandtour_point_relation.py 와 같다.
-  채점 환경은 evo 1.36.5 (rslethz/grandtour-codabench:py311).
+          arguments as in the organizers' grand_tour_box/.../grandtour_point_relation.py.
+  The scorer runs evo 1.36.5 (rslethz/grandtour-codabench:py311).
 
-사용: python3 tools/eval.py <est.tum> <gt.tum> [--t-max S] [--no-align]
+Usage: python3 tools/eval.py <est.tum> <gt.tum> [--t-max S] [--no-align]
       python3 tools/eval.py --batch <results_dir> [--csv out.csv]   # <seq>/<seq>.tum + gt.tum
 """
 import argparse, csv, glob, os, sys
@@ -39,16 +39,16 @@ def evaluate(est, gt, t_max=None, align=True):
 
 def fmt(seq, r):
     if r['ate_rmse'] == float('inf'):
-        return f'{seq:8s} 짝 {r["n_pair"]}/{r["n_gt"]} 부족'
+        return f'{seq:8s} pairs {r["n_pair"]}/{r["n_gt"]} too few'
     return (f'{seq:8s} ATE {r["ate_rmse"]*100:6.2f} cm  med {r["ate_median"]*100:6.2f}  max {r["ate_max"]*100:6.1f}'
-            f'  짝 {r["n_pair"]}/{r["n_gt"]} ({100*r["n_pair"]/r["n_gt"]:.0f}%)  t_max {r["t_max_ms"]:.0f} ms')
+            f'  pairs {r["n_pair"]}/{r["n_gt"]} ({100*r["n_pair"]/r["n_gt"]:.0f}%)  t_max {r["t_max_ms"]:.0f} ms')
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('est', nargs='?')
     ap.add_argument('gt', nargs='?')
-    ap.add_argument('--batch', help='results 디렉터리: 각 하위 폴더의 gt.tum + 그 외 *.tum 중 _imu 아닌 것')
+    ap.add_argument('--batch', help='results directory: each subfolder\'s gt.tum + every other *.tum that is not _imu')
     ap.add_argument('--t-max', type=float)
     ap.add_argument('--no-align', action='store_true')
     ap.add_argument('--csv')
@@ -65,7 +65,7 @@ def main():
                 print(fmt(name, r))
         ok = [r['ate_rmse'] for r in rows if r['ate_rmse'] != float('inf')]
         if ok:
-            print(f'{"mean":8s} ATE {np.mean(ok)*100:6.2f} cm  ({len(ok)}/{len(rows)} 미션)')
+            print(f'{"mean":8s} ATE {np.mean(ok)*100:6.2f} cm  ({len(ok)}/{len(rows)} missions)')
         if a.csv and rows:
             with open(a.csv, 'w', newline='') as f:
                 w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
